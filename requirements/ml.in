@@ -1,0 +1,11 @@
+# Dépendances ML partagées par le conteneur de dev, l'image de training (Kubeflow) et l'API.
+# Modifier ce fichier puis régénérer ml.txt (voir README de l'étape 2).
+mlflow==3.17.2
+pandas
+numpy
+scikit-learn
+pyarrow
+matplotlib
+seaborn
+joblib
+psutil

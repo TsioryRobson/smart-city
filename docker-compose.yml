@@ -1,0 +1,116 @@
+# =============================================================================
+# NOVARIA Smart City AI - Infrastructure locale (Étape 2)
+#
+# Services :
+#   postgres : base de données unique, deux bases (mlflow + urbanhub)
+#   mlflow   : serveur de tracking + Model Registry + proxy d'artefacts
+#   dev      : environnement Python de développement (VS Code Dev Containers)
+#
+# Démarrage :  docker compose up -d --build
+# Interface :  http://localhost:5000
+# =============================================================================
+
+name: smartcity
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL : métadonnées MLflow + données applicatives (Urban Hub)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:?à définir dans .env}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?à définir dans .env}
+      POSTGRES_DB: postgres
+      # Lus par le script d'initialisation pour créer les deux bases
+      MLFLOW_DB_NAME: ${MLFLOW_DB_NAME:?}
+      MLFLOW_DB_USER: ${MLFLOW_DB_USER:?}
+      MLFLOW_DB_PASSWORD: ${MLFLOW_DB_PASSWORD:?}
+      APP_DB_NAME: ${APP_DB_NAME:?}
+      APP_DB_USER: ${APP_DB_USER:?}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Exposé uniquement sur la machine locale (outil SQL type DBeaver)
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # MLflow : tracking, registry, artefacts servis par HTTP (proxied artifacts)
+  # ---------------------------------------------------------------------------
+  mlflow:
+    build:
+      context: ./infra/mlflow
+    image: smartcity/mlflow:3.17.2
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql+psycopg2://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@postgres:5432/${MLFLOW_DB_NAME}
+      MLFLOW_ARTIFACTS_DESTINATION: /mlartifacts
+      MLFLOW_HOST: 0.0.0.0
+      MLFLOW_PORT: "5000"
+      # Un seul worker : suffisant pour un POC et économe en RAM (contrainte 8 Go)
+      MLFLOW_WORKERS: "1"
+      # Noms d'hôte acceptés (protection DNS rebinding, MLflow >= 3.5)
+      #   mlflow                -> appels depuis les conteneurs du réseau Compose
+      #   localhost / 127.0.0.1 -> navigateur et scripts sur la machine
+      #   host.docker.internal  -> pods Kubeflow (étape 11)
+      MLFLOW_SERVER_ALLOWED_HOSTS: ${MLFLOW_ALLOWED_HOSTS:?}
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+    volumes:
+      - mlartifacts:/mlartifacts
+    ports:
+      - "127.0.0.1:5000:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ---------------------------------------------------------------------------
+  # Dev : environnement Python identique pour les deux membres du binôme
+  # ---------------------------------------------------------------------------
+  dev:
+    build:
+      context: .
+      dockerfile: infra/dev/Dockerfile
+    image: smartcity/dev:latest
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+      APP_DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${APP_DB_NAME}
+      DATA_DIR: /workspace/data
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: ["sleep", "infinity"]
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+
+volumes:
+  pgdata:
+  mlartifacts:

@@ -1,0 +1,3 @@
+# Image du serveur MLflow : même version que le client + pilote PostgreSQL.
+mlflow==3.17.2
+psycopg2-binary

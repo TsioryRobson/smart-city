@@ -1,0 +1,10 @@
+# Ne pas envoyer au build Docker les fichiers lourds ou sensibles
+.git
+.env
+data/
+mlruns/
+mlartifacts/
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+.venv/
