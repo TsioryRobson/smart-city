@@ -1,25 +1,20 @@
-# Secrets
-.env
-
-# Données (téléchargées depuis UCI, jamais versionnées)
-data/*
-!data/README.md
-
-# Sorties locales MLflow éventuelles
-mlruns/
-mlartifacts/
-
 # Python
+.venv/
 __pycache__/
-*.py[cod]
+*.pyc
 .pytest_cache/
 .ruff_cache/
-.venv/
-*.egg-info/
 
-# IDE / OS
-.vscode/*
-!.vscode/settings.json
-.idea/
+# Données (non versionnées, voir README)
+data/*
+!data/.gitkeep
+
+# MLflow local
+mlruns/
+mlartifacts/
+mlflow.db
+
+# Divers
+.env
+.vscode/
 .DS_Store
-Thumbs.db

@@ -1,0 +1,18 @@
+# Données et ML
+pandas
+numpy
+scikit-learn
+matplotlib
+
+# MLOps
+mlflow
+
+# API
+fastapi
+uvicorn[standard]
+pydantic
+requests
+
+# Qualité
+pytest
+ruff
