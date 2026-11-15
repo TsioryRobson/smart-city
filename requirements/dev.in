@@ -1,5 +1,0 @@
-# Outils de développement uniquement (jamais dans les images de production).
--c ml.txt
-pytest
-ruff
-ipykernel
