@@ -25,3 +25,4 @@ logs/
 # Jupyter
 .ipynb_checkpoints/
 *.egg-info/
+/models/

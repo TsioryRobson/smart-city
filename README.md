@@ -17,14 +17,17 @@ MinIO, PostgreSQL, Docker Compose. Kubernetes et Kubeflow Pipelines au sprint 3.
 
 ```
 src/novaria/
-├── common/          # config (chemins, colonnes, bornes, dates du split), utilitaires fichiers
+├── common/          # config, fichiers, MLflow (tracking.py), générateur d'anomalies (injection.py)
 ├── preparation/     # module de préparation PARTAGÉ entre l'entraînement et Flink
-└── pipeline/        # scripts CLI : ingestion.py, preparation.py (puis training, evaluation, promotion)
+├── models/          # détecteurs : les 3 algorithmes avec un seuil calibré commun
+└── pipeline/        # scripts CLI : ingestion.py, preparation.py, training.py (puis evaluation, promotion)
+configs/             # configuration de l'entraînement (training.yaml)
 notebooks/           # exploration Jupyter
 docs/                # décisions techniques justifiées
-reports/             # rapport qualité JSON, figures
+reports/             # rapport qualité, comparaison des algorithmes, figures
 tests/               # tests unitaires (données synthétiques)
 data/                # données, non versionnées : raw/, ingested/, prepared/
+models/              # modèles entraînés, non versionnés
 logs/                # journal de vérification des données, non versionné
 ```
 
@@ -51,11 +54,12 @@ et placer les 12 CSV `PRSA_Data_<station>_20130301-20170228.csv` dans `data/raw/
 
 Les dates sont dans `src/novaria/common/config.py` et peuvent être passées en arguments.
 
-## Pipeline de données (sprint 1)
+## Pipeline (sprint 1)
 
 ```bash
 python -m novaria.pipeline.ingestion     # data/raw/ -> data/ingested/
 python -m novaria.pipeline.preparation   # data/ingested/ -> data/prepared/
+python -m novaria.pipeline.training      # data/prepared/ -> models/ + MLflow (≈ 8 min)
 ```
 
 Chaque script lit et écrit des fichiers et prend sa configuration en arguments (`--help`) :
@@ -96,7 +100,7 @@ Les horodatages sont en heure locale de Pékin. Un message reçu avec un fuseau 
 
 ### Imputation et normalisation
 
-`novaria.preparation.build_preprocessor()` (imputation médiane + `StandardScaler`) n'est **pas** appliqué
+`novaria.preparation.build_preprocessor()` (imputation médiane + `StandardScaler` ou `RobustScaler`) n'est **pas** appliqué
 par la préparation : `training.py` le place dans le même pipeline scikit-learn que le modèle, enregistré dans MLflow.
 Il est donc ajusté sur le train uniquement, et appliqué à l'identique en batch et en streaming.
 
@@ -106,6 +110,30 @@ Il est donc ajusté sur le train uniquement, et appliqué à l'identique en batc
 des messages `mesures.propres`, en appelant exactement les mêmes fonctions que le batch (un test le vérifie).
 Les contrôles qui demandent l'historique d'une station (doublons, heures manquantes, capteur figé)
 demanderont un état par station dans Flink.
+
+## Entraînement
+
+**3. Entraînement** (`training.py`, configuration [configs/training.yaml](configs/training.yaml)) : pour Isolation Forest,
+LOF et One-Class SVM, chaque combinaison de la grille d'hyperparamètres est entraînée sur le train et enregistrée
+comme un run MLflow (paramètres, métriques, `git_sha`, `dataset_sha256`).
+
+- **Protocole commun :** même pipeline (imputation + mise à l'échelle + détecteur), mêmes 17 variables, et seuil
+  calibré pour alerter sur 1 % du train. Score négatif = anomalie (convention du contrat `/predict`).
+- **Validation contrôlée :** des anomalies identifiées sont injectées dans la validation (pics, valeurs impossibles,
+  capteur figé), jamais dans le train. Mesures : détection par type, fausses alertes, AUC, temps d'entraînement,
+  temps d'inférence et latence unitaire.
+- **Choix du réglage :** détection des pics − fausses alertes, par algorithme.
+- **Sorties :** meilleur modèle par algorithme dans `models/<algorithme>/` et dans MLflow (format skops, empreinte
+  `model_sha256`), `models/comparison.json`, et le tableau [reports/training_comparison.md](reports/training_comparison.md).
+
+MLflow : si `MLFLOW_TRACKING_URI` est définie (serveur), elle est utilisée ; sinon le suivi est local
+(`mlflow.db` et `mlartifacts/`, non versionnés). Pour consulter les runs en local :
+
+```bash
+mlflow ui --backend-store-uri sqlite:///mlflow.db
+```
+
+Résultats, protocole et limites : [docs/training.md](docs/training.md).
 
 ## Exploration
 
@@ -125,11 +153,12 @@ pytest tests/preparation/test_records.py::test_streaming_matches_batch   # un se
 ruff check .                                           # lint
 ```
 
-## Points d'attention pour l'entraînement
+## Points d'attention pour l'évaluation
 
 - **Saisonnalité :** le test (2015-12 → 2016-02) est uniquement hivernal ; le taux de fausses alertes mesuré
-  ne vaut que pour l'hiver. À documenter dans les limites de l'évaluation.
-- **Queues de distribution très longues** sur PM2.5, PM10, CO et SO2 : comparer `StandardScaler` avec `RobustScaler`
-  ou une transformation log.
+  ne vaut que pour l'hiver. LOF est particulièrement sensible à cette dérive (fausses alertes ×3 sur la validation).
+- **Capteur figé et valeurs impossibles** ne sont pas détectés par les modèles : ils relèvent des règles
+  (`defaut_capteur`), à mettre en place dans la règle métier de l'API.
 - **Imputation médiane :** une valeur imputée paraît « normale » au modèle, surtout pour PM2.5 et PM10
   (5 % de lignes PM2.5 > PM10 mises à NaN).
+- **Pics injectés nets** (au-dessus du 99e centile) : les taux de détection sont optimistes.

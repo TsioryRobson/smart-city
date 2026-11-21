@@ -19,6 +19,17 @@ RAW_FILE_PATTERN: str = "PRSA_Data_*_20130301-20170228.csv"
 REPORTS_DIR: Path = PROJECT_ROOT / "reports"
 LOGS_DIR: Path = PROJECT_ROOT / "logs"
 DATA_CHECKS_LOG_PATH: Path = LOGS_DIR / "data_checks.log"
+CONFIGS_DIR: Path = PROJECT_ROOT / "configs"
+TRAINING_CONFIG_PATH: Path = CONFIGS_DIR / "training.yaml"
+MODELS_DIR: Path = PROJECT_ROOT / "models"
+
+# --- MLflow (CLAUDE.md, section 7) --------------------------------------------
+MLFLOW_EXPERIMENT: str = "novaria-air-anomaly"
+MLFLOW_MODEL_NAME: str = "air-anomaly-detector"
+# Utilisés seulement si la variable d'environnement MLFLOW_TRACKING_URI est
+# absente : suivi local en SQLite, artefacts dans un dossier local.
+LOCAL_TRACKING_URI: str = f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
+LOCAL_ARTIFACTS_DIR: Path = PROJECT_ROOT / "mlartifacts"
 
 # Station utilisée par le simulateur et les exemples de contrat (démo).
 DEMO_STATION: str = "Aotizhongxin"
