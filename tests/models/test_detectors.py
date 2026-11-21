@@ -38,7 +38,9 @@ def test_threshold_gives_contamination_on_train(algorithm: str) -> None:
         algorithm: algorithme testé.
     """
     train = _prepared()
-    model = build_model(algorithm, PARAMS[algorithm], contamination=0.05, random_state=0).fit(train)
+    model = build_model(
+        algorithm, PARAMS[algorithm], contamination=0.05, random_state=0
+    ).fit(train)
 
     if algorithm == "local_outlier_factor":
         scores = model[-1].estimator_.negative_outlier_factor_ - model[-1].threshold_
@@ -56,7 +58,9 @@ def test_extreme_point_is_flagged(algorithm: str) -> None:
         algorithm: algorithme testé.
     """
     train = _prepared()
-    model = build_model(algorithm, PARAMS[algorithm], contamination=0.05, random_state=0).fit(train)
+    model = build_model(
+        algorithm, PARAMS[algorithm], contamination=0.05, random_state=0
+    ).fit(train)
     outlier = train.iloc[[0]].copy()
     outlier[["pm25", "pm10", "co", "so2"]] = [900.0, 950.0, 15000.0, 800.0]
 

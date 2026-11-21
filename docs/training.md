@@ -82,8 +82,10 @@ Constats :
   (`defaut_capteur`), ce qui confirme le choix d'une règle métier séparée du score (règle 6).
 - Les 3 modèles respectent la latence maximale de 50 ms par mesure.
 
-Ce classement est **provisoire** : le choix du modèle se fait sur le test contrôlé (`evaluation.py`) et dans la note de
-choix du modèle.
+Ce classement est **provisoire** : le choix du modèle se fait sur le test contrôlé (`evaluation.py`), voir
+[model_choice.md](model_choice.md). Attention : ici, les « fausses alertes » comptent toute alerte sur une ligne de
+référence, y compris sur les vrais épisodes de pollution extrême. L'évaluation sur le test les exclut (fausses alertes
+sur les heures ordinaires seulement), ce qui change le classement d'Isolation Forest.
 
 ## 6. Limites
 

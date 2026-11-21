@@ -8,6 +8,7 @@ import yaml
 
 from novaria.common.config import MODEL_FEATURES, STATION_COLUMN
 from novaria.common.io import read_json, sha256_file
+from novaria.models.metrics import detection_metrics
 from novaria.pipeline.ingestion import ingest
 from novaria.pipeline.preparation import prepare
 from novaria.pipeline.training import (
@@ -17,7 +18,6 @@ from novaria.pipeline.training import (
     sample_training_rows,
     select_best,
     serialized_model_path,
-    validation_metrics,
 )
 from tests.factories import measurements, write_raw_csvs
 
@@ -108,7 +108,7 @@ def test_validation_metrics() -> None:
     scores = np.array([1.0, 0.5, 0.2, -0.1, -2.0, 0.3])
     labels = pd.Series([None, None, None, None, "pic", "pic"], dtype="object")
 
-    metrics = validation_metrics(scores, labels)
+    metrics = detection_metrics(scores, labels)
 
     assert metrics["val_false_alarm_rate"] == 0.25
     assert metrics["val_detection_rate_pic"] == 0.5
