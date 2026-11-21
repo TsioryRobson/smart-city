@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "novaria"
+version = "0.1.0"
+description = "Novaria Smart City AI : détection d'anomalies de qualité de l'air (POC)"
+requires-python = ">=3.12"
+# Les dépendances sont gérées par requirements.txt / requirements.lock.txt.
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
