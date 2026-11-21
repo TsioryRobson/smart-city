@@ -36,7 +36,6 @@ import skops
 import yaml
 from mlflow.models import ModelSignature
 from mlflow.types import ColSpec, Schema, TensorSpec
-from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 
 import novaria
@@ -51,17 +50,15 @@ from novaria.common.config import (
 )
 from novaria.common.injection import (
     INJECTION_TYPES,
-    SPIKE,
-    InjectionConfig,
-    inject_anomalies,
+    build_controlled_set,
+    injection_config_from_dict,
 )
 from novaria.common.io import read_json, sha256_file, write_json
 from novaria.common.tracking import git_sha, setup_mlflow
 from novaria.models.detectors import ALGORITHMS, SKOPS_TRUSTED_TYPES, build_model
-from novaria.preparation.cleaning import fix_inconsistencies
+from novaria.models.metrics import detection_metrics, single_row_latency_ms
 
 COMPARISON_FILE = "comparison.json"
-LATENCY_CALLS = 30
 
 
 # --- Configuration -----------------------------------------------------------
@@ -147,93 +144,7 @@ def sample_training_rows(
     return sample.sort_index(kind="stable")
 
 
-def build_validation_set(
-    val: pd.DataFrame, injection: InjectionConfig, seed: int
-) -> tuple[pd.DataFrame, pd.Series]:
-    """Construit la validation contrôlée : validation réelle + anomalies injectées.
-
-    Les anomalies sont injectées sur les mesures, puis le même nettoyage
-    qu'en production est réappliqué (``fix_inconsistencies``) : une valeur
-    impossible injectée devient NaN, comme elle le deviendrait en streaming.
-    Les variables dérivées (vent, heure, mois) ne dépendent pas des mesures
-    modifiées et restent valables.
-
-    Args:
-        val: validation préparée indexée par ``timestamp``.
-        injection: taux et durées d'injection.
-        seed: graine de l'injection.
-
-    Returns:
-        Le couple ``(validation contrôlée, étiquettes)`` ; une étiquette vaut
-        ``None`` pour une ligne de référence, sinon le type d'anomalie.
-    """
-    injected, labels = inject_anomalies(val, injection, seed=seed)
-    return fix_inconsistencies(injected), labels
-
-
 # --- Mesures -----------------------------------------------------------------
-def validation_metrics(scores: np.ndarray, labels: pd.Series) -> dict[str, float]:
-    """Calcule les métriques de la validation contrôlée à partir des scores.
-
-    Args:
-        scores: score d'anomalie par ligne (négatif = alerte).
-        labels: type d'anomalie injectée par ligne, ``None`` pour la référence.
-
-    Returns:
-        Taux de fausses alertes sur la référence, taux de détection global et
-        par type, AUC ROC et précision moyenne pour les pics (indépendantes du
-        seuil), et l'indice de Youden des pics (détection - fausses alertes).
-    """
-    alerts = scores < 0
-    reference = labels.isna().to_numpy()
-    metrics = {
-        "val_false_alarm_rate": float(alerts[reference].mean()),
-        "val_detection_rate": float(alerts[~reference].mean()),
-    }
-    for kind in INJECTION_TYPES:
-        mask = (labels == kind).to_numpy()
-        metrics[f"val_detection_rate_{kind}"] = (
-            float(alerts[mask].mean()) if mask.any() else 0.0
-        )
-
-    spikes = (labels == SPIKE).to_numpy()
-    subset = reference | spikes
-    if spikes.any():
-        metrics["val_roc_auc_pic"] = float(
-            roc_auc_score(spikes[subset], -scores[subset])
-        )
-        metrics["val_average_precision_pic"] = float(
-            average_precision_score(spikes[subset], -scores[subset])
-        )
-    metrics["val_youden_pic"] = (
-        metrics[f"val_detection_rate_{SPIKE}"] - metrics["val_false_alarm_rate"]
-    )
-    return metrics
-
-
-def single_row_latency_ms(
-    model: Pipeline, df: pd.DataFrame, calls: int = LATENCY_CALLS
-) -> float:
-    """Mesure le temps de réponse médian pour une seule mesure, comme dans l'API.
-
-    Args:
-        model: pipeline ajusté.
-        df: trame préparée dont on prend une ligne.
-        calls: nombre d'appels mesurés.
-
-    Returns:
-        La latence médiane en millisecondes.
-    """
-    row = df.iloc[[0]]
-    model.decision_function(row)  # préchauffage
-    durations = []
-    for _ in range(calls):
-        start = time.perf_counter()
-        model.decision_function(row)
-        durations.append(time.perf_counter() - start)
-    return float(np.median(durations) * 1000)
-
-
 def train_candidate(
     algorithm: str,
     params: dict[str, Any],
@@ -273,7 +184,7 @@ def train_candidate(
         "latency_ms_single_row": latency,
         "latency_ok": float(latency <= config["max_latency_ms"]),
         "n_train_rows": float(len(train)),
-        **validation_metrics(scores, labels),
+        **detection_metrics(scores, labels, prefix="val"),
     }
     return model, metrics
 
@@ -480,13 +391,8 @@ def run_training(
     seed = config["random_state"]
 
     train = read_prepared(input_dir / "train.parquet")
-    injection = InjectionConfig(
-        **{
-            **config["validation_injection"],
-            "frozen_hours": tuple(config["validation_injection"]["frozen_hours"]),
-        }
-    )
-    validation, labels = build_validation_set(
+    injection = injection_config_from_dict(config["validation_injection"])
+    validation, labels = build_controlled_set(
         read_prepared(input_dir / "val.parquet"), injection, seed
     )
 

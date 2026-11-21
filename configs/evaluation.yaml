@@ -1,0 +1,33 @@
+# Configuration de l'injection (python -m novaria.pipeline.injection) et de
+# l'évaluation (python -m novaria.pipeline.evaluation). Choix justifiés dans
+# docs/model_choice.md.
+
+# Test contrôlé : mêmes types et mêmes taux que la validation, pour que les
+# chiffres du test et de la validation soient comparables.
+injection:
+  spike_rate: 0.02
+  impossible_rate: 0.005
+  frozen_runs: 12
+  frozen_hours: [24, 48]
+
+# Plusieurs tirages d'anomalies sur le même test : mesure la stabilité des
+# résultats vis-à-vis des anomalies injectées. Les 3 modèles voient exactement
+# les mêmes fichiers.
+injection_seeds: [0, 1, 2, 3, 4]
+
+# Stabilité vis-à-vis des données d'entraînement : chaque modèle retenu est
+# réentraîné (mêmes hyperparamètres) sur plusieurs sous-échantillons du train,
+# stratifiés par station et par mois, puis évalué sur le tirage 0.
+stability:
+  retrain_runs: 5
+  train_fraction: 0.8
+
+# Règle de sélection (inspirée de la promotion, CLAUDE.md section 7) :
+# 1. éliminer les modèles dont la latence unitaire dépasse max_latency_ms ;
+# 2. classer par Youden des pics moyen (détection - fausses alertes) ;
+# 3. si l'écart avec le premier est inférieur à tolerance, préférer le moins
+#    de fausses alertes, puis la plus faible variabilité.
+selection:
+  metric: test_youden_pic
+  tolerance: 0.02
+  max_latency_ms: 50

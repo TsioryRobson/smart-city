@@ -29,6 +29,7 @@ from novaria.common.config import (
     POLLUTANTS,
     STATION_COLUMN,
 )
+from novaria.preparation.cleaning import fix_inconsistencies
 
 INJECTION_COLUMN = "injection"
 SPIKE = "pic"
@@ -210,3 +211,40 @@ def inject_anomalies(
     inject_impossible_values(out, labels, round(config.impossible_rate * len(out)), rng)
     inject_spikes(out, labels, round(config.spike_rate * len(out)), rng)
     return out, labels
+
+
+def injection_config_from_dict(values: dict) -> InjectionConfig:
+    """Construit les paramètres d'injection à partir d'une section de configuration YAML.
+
+    Args:
+        values: clés ``spike_rate``, ``impossible_rate``, ``frozen_runs`` et
+            ``frozen_hours`` (liste de deux entiers).
+
+    Returns:
+        Les paramètres d'injection.
+    """
+    return InjectionConfig(**{**values, "frozen_hours": tuple(values["frozen_hours"])})
+
+
+def build_controlled_set(
+    df: pd.DataFrame, config: InjectionConfig, seed: int
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Construit un jeu contrôlé : données réelles préparées + anomalies injectées.
+
+    Les anomalies sont injectées sur les mesures, puis le même nettoyage
+    qu'en production est réappliqué (``fix_inconsistencies``) : une valeur
+    impossible injectée devient NaN, comme elle le deviendrait en streaming.
+    Les variables dérivées (vent, heure, mois) ne dépendent pas des mesures
+    modifiées et restent valables.
+
+    Args:
+        df: jeu préparé (validation ou test) indexé par ``timestamp``.
+        config: taux et durées d'injection.
+        seed: graine de l'injection.
+
+    Returns:
+        Le couple ``(jeu contrôlé, étiquettes)`` ; une étiquette vaut ``None``
+        pour une ligne de référence, sinon le type d'anomalie.
+    """
+    injected, labels = inject_anomalies(df, config, seed=seed)
+    return fix_inconsistencies(injected), labels

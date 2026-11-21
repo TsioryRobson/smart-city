@@ -14,6 +14,8 @@ DATA_DIR: Path = PROJECT_ROOT / "data"
 RAW_DATA_DIR: Path = DATA_DIR / "raw"
 INGESTED_DATA_DIR: Path = DATA_DIR / "ingested"
 PREPARED_DATA_DIR: Path = DATA_DIR / "prepared"
+# Jeux contrôlés (test + anomalies injectées), figés pour l'évaluation.
+CONTROLLED_DATA_DIR: Path = DATA_DIR / "controlled"
 # Un CSV par station (12 stations), jamais modifiés.
 RAW_FILE_PATTERN: str = "PRSA_Data_*_20130301-20170228.csv"
 REPORTS_DIR: Path = PROJECT_ROOT / "reports"
@@ -21,6 +23,7 @@ LOGS_DIR: Path = PROJECT_ROOT / "logs"
 DATA_CHECKS_LOG_PATH: Path = LOGS_DIR / "data_checks.log"
 CONFIGS_DIR: Path = PROJECT_ROOT / "configs"
 TRAINING_CONFIG_PATH: Path = CONFIGS_DIR / "training.yaml"
+EVALUATION_CONFIG_PATH: Path = CONFIGS_DIR / "evaluation.yaml"
 MODELS_DIR: Path = PROJECT_ROOT / "models"
 
 # --- MLflow (CLAUDE.md, section 7) --------------------------------------------

@@ -20,13 +20,13 @@ src/novaria/
 ├── common/          # config, fichiers, MLflow (tracking.py), générateur d'anomalies (injection.py)
 ├── preparation/     # module de préparation PARTAGÉ entre l'entraînement et Flink
 ├── models/          # détecteurs : les 3 algorithmes avec un seuil calibré commun
-└── pipeline/        # scripts CLI : ingestion.py, preparation.py, training.py (puis evaluation, promotion)
-configs/             # configuration de l'entraînement (training.yaml)
+└── pipeline/        # scripts CLI : ingestion, preparation, training, injection, evaluation (puis promotion)
+configs/             # configuration de l'entraînement et de l'évaluation
 notebooks/           # exploration Jupyter
 docs/                # décisions techniques justifiées
 reports/             # rapport qualité, comparaison des algorithmes, figures
 tests/               # tests unitaires (données synthétiques)
-data/                # données, non versionnées : raw/, ingested/, prepared/
+data/                # données, non versionnées : raw/, ingested/, prepared/, controlled/
 models/              # modèles entraînés, non versionnés
 logs/                # journal de vérification des données, non versionné
 ```
@@ -60,6 +60,8 @@ Les dates sont dans `src/novaria/common/config.py` et peuvent être passées en 
 python -m novaria.pipeline.ingestion     # data/raw/ -> data/ingested/
 python -m novaria.pipeline.preparation   # data/ingested/ -> data/prepared/
 python -m novaria.pipeline.training      # data/prepared/ -> models/ + MLflow (≈ 8 min)
+python -m novaria.pipeline.injection     # data/prepared/test -> data/controlled/ (anomalies injectées)
+python -m novaria.pipeline.evaluation    # -> models/selection.json, reports/evaluation.md (≈ 3 min)
 ```
 
 Chaque script lit et écrit des fichiers et prend sa configuration en arguments (`--help`) :
@@ -135,6 +137,27 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 Résultats, protocole et limites : [docs/training.md](docs/training.md).
 
+## Évaluation et sélection
+
+**Injection** (`injection.py`, configuration [configs/evaluation.yaml](configs/evaluation.yaml)) : écrit 5 jeux de test
+contrôlés (test réel + anomalies injectées, une graine par fichier) dans `data/controlled/`, avec leurs empreintes.
+Les 3 modèles sont évalués sur exactement les mêmes fichiers. L'injection est refusée sur le train.
+
+**Évaluation** (`evaluation.py`) : pour le modèle retenu de chaque algorithme (empreinte vérifiée au chargement) :
+- **performance** moyenne sur les 5 tirages : détection par type d'anomalie, fausses alertes, AUC ;
+- **fausses alertes = alertes sur les heures ordinaires** : les heures où un polluant dépasse le 99e centile du train
+  sont de vrais épisodes de pollution extrême, mesurés à part ;
+- **stabilité** : écart-type entre tirages, entre 5 réentraînements sur 80 % du train, et fausses alertes par mois et
+  par station ;
+- **coût** : latence unitaire, temps d'inférence, taille du modèle.
+
+La règle de sélection (latence ≤ 50 ms, puis meilleur « pics détectés − fausses alertes », puis moins de fausses
+alertes à 0,02 près) écrit le modèle retenu dans `models/selection.json`, pour la promotion.
+
+**Modèle retenu : One-Class SVM**, avec 96 % des pics détectés, 2,9 % de fausses alertes, 0,4 Mo et 8 ms par mesure.
+La justification, l'alternative Isolation Forest et les limites sont dans [docs/model_choice.md](docs/model_choice.md).
+Les résultats détaillés sont dans [reports/evaluation.md](reports/evaluation.md).
+
 ## Exploration
 
 ```bash
@@ -153,12 +176,14 @@ pytest tests/preparation/test_records.py::test_streaming_matches_batch   # un se
 ruff check .                                           # lint
 ```
 
-## Points d'attention pour l'évaluation
+## Points d'attention pour la suite
 
-- **Saisonnalité :** le test (2015-12 → 2016-02) est uniquement hivernal ; le taux de fausses alertes mesuré
-  ne vaut que pour l'hiver. LOF est particulièrement sensible à cette dérive (fausses alertes ×3 sur la validation).
+- **Fausses alertes météo :** 70 % des fausses alertes de One-Class SVM tombent sur une météo jamais vue au train
+  (vague de froid de janvier 2016). La règle métier de l'API devra ne lever `pollution_atypique` que si un polluant
+  est en cause.
 - **Capteur figé et valeurs impossibles** ne sont pas détectés par les modèles : ils relèvent des règles
   (`defaut_capteur`), à mettre en place dans la règle métier de l'API.
+- **Saisonnalité :** le test est uniquement hivernal ; les fausses alertes mesurées dépendent de la saison.
 - **Imputation médiane :** une valeur imputée paraît « normale » au modèle, surtout pour PM2.5 et PM10
   (5 % de lignes PM2.5 > PM10 mises à NaN).
 - **Pics injectés nets** (au-dessus du 99e centile) : les taux de détection sont optimistes.
