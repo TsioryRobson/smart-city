@@ -21,3 +21,7 @@ mlflow.db
 
 # Journaux de vérification des données
 logs/
+
+# Jupyter
+.ipynb_checkpoints/
+*.egg-info/

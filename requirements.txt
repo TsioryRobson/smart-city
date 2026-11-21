@@ -3,6 +3,11 @@ pandas
 numpy
 scikit-learn
 matplotlib
+pyarrow
+
+# Exploration
+jupyterlab
+ipykernel
 
 # MLOps
 mlflow

@@ -1,6 +1,5 @@
 {
   "n_rows": 420768,
-  "n_columns": 8,
   "stations": [
     "Aotizhongxin",
     "Changping",
@@ -17,18 +16,8 @@
   ],
   "start": "2013-03-01T00:00:00",
   "end": "2017-02-28T23:00:00",
-  "dtypes": {
-    "station": "str",
-    "pm25": "float64",
-    "pm10": "float64",
-    "no2": "float64",
-    "co": "float64",
-    "so2": "float64",
-    "o3": "float64",
-    "temp": "float64"
-  },
   "missing": {
-    "station": {
+    "station_id": {
       "count": 0,
       "pct": 0.0
     },
@@ -59,6 +48,26 @@
     "temp": {
       "count": 398,
       "pct": 0.09
+    },
+    "pres": {
+      "count": 393,
+      "pct": 0.09
+    },
+    "dewp": {
+      "count": 403,
+      "pct": 0.1
+    },
+    "rain": {
+      "count": 390,
+      "pct": 0.09
+    },
+    "wspm": {
+      "count": 318,
+      "pct": 0.08
+    },
+    "wd": {
+      "count": 1822,
+      "pct": 0.43
     }
   },
   "duplicates": 0,
@@ -118,6 +127,30 @@
       "median": 14.5,
       "p99": 33.8,
       "max": 41.6
+    },
+    "pres": {
+      "min": 982.4,
+      "median": 1010.4,
+      "p99": 1032.5,
+      "max": 1042.8
+    },
+    "dewp": {
+      "min": -43.4,
+      "median": 3.1,
+      "p99": 24.5,
+      "max": 29.1
+    },
+    "rain": {
+      "min": 0.0,
+      "median": 0.0,
+      "p99": 1.4,
+      "max": 72.5
+    },
+    "wspm": {
+      "min": 0.0,
+      "median": 1.4,
+      "p99": 6.1,
+      "max": 13.2
     }
   },
   "inconsistencies": {
@@ -127,7 +160,9 @@
       "no2": 0,
       "co": 0,
       "so2": 0,
-      "o3": 0
+      "o3": 0,
+      "rain": 0,
+      "wspm": 0
     },
     "hors_bornes": {
       "pm25": 0,
@@ -136,11 +171,18 @@
       "co": 0,
       "so2": 0,
       "o3": 16,
-      "temp": 0
+      "temp": 0,
+      "pres": 0,
+      "dewp": 0,
+      "rain": 0,
+      "wspm": 0
     },
     "pm25_superieur_pm10": {
       "pm25": 21312,
       "pm10": 21312
+    },
+    "direction_inconnue": {
+      "wd": 0
     }
   },
   "frozen_sensor_runs": {
@@ -156,10 +198,7 @@
   },
   "splits": {
     "train": {
-      "shape": [
-        105120,
-        8
-      ],
+      "rows": 105120,
       "n_stations": 12,
       "start": "2014-09-01T00:00:00",
       "end": "2015-08-31T23:00:00",
@@ -191,14 +230,51 @@
         "temp": {
           "count": 172,
           "pct": 0.16
+        },
+        "pres": {
+          "count": 173,
+          "pct": 0.16
+        },
+        "dewp": {
+          "count": 174,
+          "pct": 0.17
+        },
+        "rain": {
+          "count": 176,
+          "pct": 0.17
+        },
+        "wspm": {
+          "count": 173,
+          "pct": 0.16
+        },
+        "wd_sin": {
+          "count": 343,
+          "pct": 0.33
+        },
+        "wd_cos": {
+          "count": 343,
+          "pct": 0.33
+        },
+        "hour_sin": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "hour_cos": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "month_sin": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "month_cos": {
+          "count": 0,
+          "pct": 0.0
         }
       }
     },
     "val": {
-      "shape": [
-        26208,
-        8
-      ],
+      "rows": 26208,
       "n_stations": 12,
       "start": "2015-09-01T00:00:00",
       "end": "2015-11-30T23:00:00",
@@ -230,14 +306,51 @@
         "temp": {
           "count": 0,
           "pct": 0.0
+        },
+        "pres": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "dewp": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "rain": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "wspm": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "wd_sin": {
+          "count": 222,
+          "pct": 0.85
+        },
+        "wd_cos": {
+          "count": 222,
+          "pct": 0.85
+        },
+        "hour_sin": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "hour_cos": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "month_sin": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "month_cos": {
+          "count": 0,
+          "pct": 0.0
         }
       }
     },
     "test": {
-      "shape": [
-        26208,
-        8
-      ],
+      "rows": 26208,
       "n_stations": 12,
       "start": "2015-12-01T00:00:00",
       "end": "2016-02-29T23:00:00",
@@ -267,6 +380,46 @@
           "pct": 1.39
         },
         "temp": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "pres": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "dewp": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "rain": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "wspm": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "wd_sin": {
+          "count": 73,
+          "pct": 0.28
+        },
+        "wd_cos": {
+          "count": 73,
+          "pct": 0.28
+        },
+        "hour_sin": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "hour_cos": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "month_sin": {
+          "count": 0,
+          "pct": 0.0
+        },
+        "month_cos": {
           "count": 0,
           "pct": 0.0
         }
