@@ -12,6 +12,8 @@ import subprocess
 from pathlib import Path
 
 import mlflow
+import mlflow.data
+import pandas as pd
 
 from novaria.common.config import (
     LOCAL_ARTIFACTS_DIR,
@@ -113,3 +115,39 @@ def git_sha() -> str:
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
     return f"{sha}-dirty" if status else sha
+
+
+def log_dataset(
+    df: pd.DataFrame,
+    name: str,
+    context: str,
+    source: str | Path,
+    sha256: str | None = None,
+    tags: dict[str, str] | None = None,
+) -> None:
+    """Enregistre un jeu de données comme entrée du run MLflow actif (onglet « Datasets »).
+
+    Args:
+        df: données (l'index ``timestamp`` est remis en colonne).
+        name: nom du jeu (ex. ``train``, ``test_controle_seed0``).
+        context: rôle du jeu dans le run (``entrainement``, ``validation``,
+            ``test``).
+        source: fichier d'origine ; converti en URI ``file://``.
+        sha256: empreinte SHA-256 du fichier, si elle existe. Ses 16 premiers
+            caractères servent d'identifiant (``digest``) ; l'empreinte
+            complète est ajoutée en tag.
+        tags: tags supplémentaires (ex. nombre d'anomalies injectées).
+    """
+    data = df.reset_index() if df.index.name else df
+    dataset = mlflow.data.from_pandas(
+        data,
+        source=Path(source).resolve().as_uri(),
+        name=name,
+        digest=sha256[:16] if sha256 else None,
+    )
+    input_tags = dict(tags or {})
+    if sha256:
+        input_tags["sha256"] = sha256
+    mlflow.log_input(
+        dataset, context=context, tags={k: str(v) for k, v in input_tags.items()}
+    )

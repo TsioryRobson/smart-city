@@ -202,3 +202,35 @@ def test_run_training_end_to_end(tmp_path) -> None:
         row.loc[0, "temp"] = np.nan
         assert np.isfinite(model.decision_function(row)).all()
     assert (tmp_path / "mlartifacts").exists()
+
+    # Traçabilité : jeux de données en entrée, commit, signature et dépendances.
+    for algorithm, best in summary["selected"].items():
+        run = mlflow.get_run(best["run_id"])
+        inputs = {i.dataset.name: i for i in run.inputs.dataset_inputs}
+        if SMALL_CONFIG["algorithms"][algorithm]["max_train_samples"] is None:
+            assert set(inputs) == {"train", "validation_controlee"}
+            assert inputs["train"].dataset.digest == summary_train_sha(tmp_path)[:16]
+        else:
+            assert set(inputs) == {"train_echantillon", "validation_controlee"}
+        assert run.data.tags["git_sha"] == summary["git_sha"]
+        info = mlflow.models.get_model_info(best["model_uri"])
+        assert [c.name for c in info.signature.inputs.inputs] == MODEL_FEATURES
+        assert not any(c.required for c in info.signature.inputs.inputs)
+        requirements = mlflow.artifacts.load_text(
+            f"{best['model_uri']}/requirements.txt"
+        )
+        assert "scikit-learn==" in requirements and "skops==" in requirements
+
+
+def summary_train_sha(tmp_path) -> str:
+    """Lit l'empreinte du train préparé dans les métadonnées de la préparation.
+
+    Args:
+        tmp_path: dossier temporaire du test.
+
+    Returns:
+        L'empreinte SHA-256 du fichier ``train.parquet``.
+    """
+    return read_json(tmp_path / "prepared" / "metadata.json")["files"]["train"][
+        "sha256"
+    ]

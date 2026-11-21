@@ -54,7 +54,7 @@ from novaria.common.injection import (
     injection_config_from_dict,
 )
 from novaria.common.io import read_json, sha256_file, write_json
-from novaria.common.tracking import git_sha, setup_mlflow
+from novaria.common.tracking import git_sha, log_dataset, setup_mlflow
 from novaria.models.detectors import ALGORITHMS, SKOPS_TRUSTED_TYPES, build_model
 from novaria.models.metrics import detection_metrics, single_row_latency_ms
 
@@ -362,6 +362,51 @@ def comparison_markdown(summary: dict[str, Any]) -> str:
 
 
 # --- Orchestration -----------------------------------------------------------
+def log_training_inputs(
+    train_rows: pd.DataFrame,
+    full_train: pd.DataFrame,
+    validation: pd.DataFrame,
+    labels: pd.Series,
+    input_dir: Path,
+    metadata: dict[str, Any],
+    seed: int,
+) -> None:
+    """Enregistre dans le run MLflow actif le train utilisé et la validation contrôlée.
+
+    Le train garde l'empreinte de son fichier Parquet s'il est utilisé en
+    entier ; un échantillon reçoit l'identifiant calculé par MLflow.
+
+    Args:
+        train_rows: lignes du train réellement utilisées.
+        full_train: train complet.
+        validation: validation contrôlée (anomalies injectées).
+        labels: étiquettes d'injection de la validation.
+        input_dir: dossier de la préparation (sources des jeux).
+        metadata: métadonnées de la préparation (empreintes des fichiers).
+        seed: graine de l'injection dans la validation.
+    """
+    files = metadata["files"]
+    full = len(train_rows) == len(full_train)
+    log_dataset(
+        train_rows,
+        name="train" if full else "train_echantillon",
+        context="entrainement",
+        source=input_dir / files["train"]["path"],
+        sha256=files["train"]["sha256"] if full else None,
+    )
+    log_dataset(
+        validation.assign(injection=labels.to_numpy()),
+        name="validation_controlee",
+        context="validation",
+        source=input_dir / files["val"]["path"],
+        tags={
+            "source_sha256": files["val"]["sha256"],
+            "injection_seed": seed,
+            **{f"injected_{k}": int((labels == k).sum()) for k in INJECTION_TYPES},
+        },
+    )
+
+
 def run_training(
     input_dir: str | Path,
     output_dir: str | Path,
@@ -419,6 +464,8 @@ def run_training(
             {"contamination": config["contamination"], "random_state": seed}
         )
         mlflow.log_dict(config, "training_config.json")
+        mlflow.log_artifact(str(input_dir / "metadata.json"), artifact_path="data")
+        log_training_inputs(train, train, validation, labels, input_dir, metadata, seed)
         summary["parent_run_id"] = parent.info.run_id
 
         for algorithm, algo_config in config["algorithms"].items():
@@ -443,6 +490,9 @@ def run_training(
                         }
                     )
                     mlflow.log_metrics(metrics)
+                    log_training_inputs(
+                        train_rows, train, validation, labels, input_dir, metadata, seed
+                    )
                 runs.append(
                     {"run_id": run.info.run_id, "params": params, "metrics": metrics}
                 )

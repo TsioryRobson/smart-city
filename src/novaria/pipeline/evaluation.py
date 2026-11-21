@@ -48,7 +48,7 @@ from novaria.common.config import (
 )
 from novaria.common.injection import SPIKE
 from novaria.common.io import read_json, sha256_file, write_json
-from novaria.common.tracking import git_sha, setup_mlflow
+from novaria.common.tracking import git_sha, log_dataset, setup_mlflow
 from novaria.models.detectors import build_model
 from novaria.models.metrics import (
     detection_metrics,
@@ -532,6 +532,29 @@ def stability_figure(summary: dict[str, Any], path: Path) -> Path:
 
 
 # --- Orchestration -----------------------------------------------------------
+def log_controlled_inputs(
+    sets: list[ControlledSet], manifest: dict[str, Any], controlled_dir: Path
+) -> None:
+    """Enregistre les jeux de test contrôlés comme entrées du run MLflow actif.
+
+    Args:
+        sets: jeux contrôlés évalués.
+        manifest: manifeste de l'injection (empreinte et contenu de chaque fichier).
+        controlled_dir: dossier des jeux contrôlés.
+    """
+    entries = {entry["seed"]: entry for entry in manifest["files"]}
+    for controlled in sets:
+        entry = entries[controlled.seed]
+        log_dataset(
+            controlled.data.assign(injection=controlled.labels.to_numpy()),
+            name=f"test_controle_seed{controlled.seed}",
+            context="test",
+            source=controlled_dir / entry["path"],
+            sha256=entry["sha256"],
+            tags={f"injected_{k}": n for k, n in entry["injected"].items()},
+        )
+
+
 def evaluate_algorithm(
     algorithm: str,
     selected: dict[str, Any],
@@ -684,17 +707,30 @@ def run_evaluation(
         mlflow.log_params(
             {"injection_seeds": len(sets), **config["stability"], **config["selection"]}
         )
+        mlflow.log_dict(config, "evaluation_config.json")
+        log_controlled_inputs(sets, manifest, controlled_dir)
         for algorithm, result in results.items():
             with mlflow.start_run(run_name=f"evaluation-{algorithm}", nested=True):
                 mlflow.set_tags(
                     {
                         "step": "evaluation",
                         "algorithm": algorithm,
+                        "git_sha": summary["git_sha"],
+                        "dataset_sha256": summary["dataset_sha256"],
                         "training_run_id": result["training_run_id"],
+                        "model_uri": comparison["selected"][algorithm]["model_uri"],
                         "model_sha256": result["model_sha256"],
                         "selected": str(algorithm == chosen).lower(),
                     }
                 )
+                mlflow.log_params(
+                    {
+                        "algorithm": algorithm,
+                        "contamination": summary["contamination"],
+                        **result["params"],
+                    }
+                )
+                log_controlled_inputs(sets, manifest, controlled_dir)
                 metrics = {
                     f"{k}_mean": v["mean"] for k, v in result["injection"].items()
                 }
@@ -705,6 +741,7 @@ def run_evaluation(
                     "test_youden_pic"
                 ]["std"]
                 metrics["latency_ms_single_row"] = result["latency_ms_single_row"]
+                metrics["model_size_mb"] = result["model_size_mb"]
                 mlflow.log_metrics(metrics)
         for path in (
             models_dir / EVALUATION_FILE,
