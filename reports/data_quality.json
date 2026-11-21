@@ -1,9 +1,24 @@
 {
-  "n_rows": 35064,
-  "n_columns": 7,
+  "n_rows": 420768,
+  "n_columns": 8,
+  "stations": [
+    "Aotizhongxin",
+    "Changping",
+    "Dingling",
+    "Dongsi",
+    "Guanyuan",
+    "Gucheng",
+    "Huairou",
+    "Nongzhanguan",
+    "Shunyi",
+    "Tiantan",
+    "Wanliu",
+    "Wanshouxigong"
+  ],
   "start": "2013-03-01T00:00:00",
   "end": "2017-02-28T23:00:00",
   "dtypes": {
+    "station": "str",
     "pm25": "float64",
     "pm10": "float64",
     "no2": "float64",
@@ -13,160 +28,204 @@
     "temp": "float64"
   },
   "missing": {
+    "station": {
+      "count": 0,
+      "pct": 0.0
+    },
     "pm25": {
-      "count": 925,
-      "pct": 2.64
+      "count": 8739,
+      "pct": 2.08
     },
     "pm10": {
-      "count": 718,
-      "pct": 2.05
+      "count": 6449,
+      "pct": 1.53
     },
     "no2": {
-      "count": 1023,
-      "pct": 2.92
+      "count": 12116,
+      "pct": 2.88
     },
     "co": {
-      "count": 1776,
-      "pct": 5.07
+      "count": 20701,
+      "pct": 4.92
     },
     "so2": {
-      "count": 935,
-      "pct": 2.67
+      "count": 9021,
+      "pct": 2.14
     },
     "o3": {
-      "count": 1719,
-      "pct": 4.9
+      "count": 13277,
+      "pct": 3.16
     },
     "temp": {
-      "count": 20,
-      "pct": 0.06
+      "count": 398,
+      "pct": 0.09
     }
   },
-  "duplicate_timestamps": 0,
-  "missing_hours": 0,
+  "duplicates": 0,
+  "missing_hours": {
+    "Aotizhongxin": 0,
+    "Changping": 0,
+    "Dingling": 0,
+    "Dongsi": 0,
+    "Guanyuan": 0,
+    "Gucheng": 0,
+    "Huairou": 0,
+    "Nongzhanguan": 0,
+    "Shunyi": 0,
+    "Tiantan": 0,
+    "Wanliu": 0,
+    "Wanshouxigong": 0
+  },
   "stats": {
     "pm25": {
-      "min": 3.0,
-      "median": 58.0,
-      "p99": 377.0,
-      "max": 898.0
+      "min": 2.0,
+      "median": 55.0,
+      "p99": 370.0,
+      "max": 999.0
     },
     "pm10": {
       "min": 2.0,
-      "median": 87.0,
-      "p99": 437.0,
-      "max": 984.0
+      "median": 82.0,
+      "p99": 422.0,
+      "max": 999.0
     },
     "no2": {
-      "min": 2.0,
-      "median": 53.0,
-      "p99": 169.0,
+      "min": 1.0265,
+      "median": 43.0,
+      "p99": 157.0,
       "max": 290.0
     },
     "co": {
       "min": 100.0,
       "median": 900.0,
-      "p99": 6212.999999999738,
+      "p99": 6000.0,
       "max": 10000.0
     },
     "so2": {
       "min": 0.2856,
-      "median": 9.0,
-      "p99": 112.0,
-      "max": 341.0
+      "median": 7.0,
+      "p99": 104.0,
+      "max": 500.0
     },
     "o3": {
       "min": 0.2142,
-      "median": 42.0,
-      "p99": 247.0,
-      "max": 423.0
+      "median": 45.0,
+      "p99": 245.0,
+      "max": 1071.0
     },
     "temp": {
-      "min": -16.8,
+      "min": -19.9,
       "median": 14.5,
       "p99": 33.8,
-      "max": 40.5
+      "max": 41.6
     }
   },
-  "negative_values": {
-    "pm25": 0,
-    "pm10": 0,
-    "no2": 0,
-    "co": 0,
-    "so2": 0,
-    "o3": 0,
-    "temp": 5308
+  "inconsistencies": {
+    "valeur_negative": {
+      "pm25": 0,
+      "pm10": 0,
+      "no2": 0,
+      "co": 0,
+      "so2": 0,
+      "o3": 0
+    },
+    "hors_bornes": {
+      "pm25": 0,
+      "pm10": 0,
+      "no2": 0,
+      "co": 0,
+      "so2": 0,
+      "o3": 16,
+      "temp": 0
+    },
+    "pm25_superieur_pm10": {
+      "pm25": 21312,
+      "pm10": 21312
+    }
+  },
+  "frozen_sensor_runs": {
+    "min_hours": 24,
+    "by_column": {
+      "co": 53,
+      "no2": 20,
+      "o3": 136,
+      "pm10": 6,
+      "pm25": 1,
+      "so2": 1051
+    }
   },
   "splits": {
     "train": {
       "shape": [
-        24544,
-        7
+        105120,
+        8
       ],
-      "start": "2013-03-01T00:00:00",
-      "end": "2015-12-18T15:00:00",
+      "n_stations": 12,
+      "start": "2014-09-01T00:00:00",
+      "end": "2015-08-31T23:00:00",
       "missing": {
         "pm25": {
-          "count": 730,
-          "pct": 2.97
-        },
-        "pm10": {
-          "count": 590,
+          "count": 2519,
           "pct": 2.4
         },
+        "pm10": {
+          "count": 1823,
+          "pct": 1.73
+        },
         "no2": {
-          "count": 777,
-          "pct": 3.17
+          "count": 2935,
+          "pct": 2.79
         },
         "co": {
-          "count": 1592,
-          "pct": 6.49
+          "count": 2298,
+          "pct": 2.19
         },
         "so2": {
-          "count": 777,
-          "pct": 3.17
+          "count": 2270,
+          "pct": 2.16
         },
         "o3": {
-          "count": 1407,
-          "pct": 5.73
+          "count": 2596,
+          "pct": 2.47
         },
         "temp": {
-          "count": 2,
-          "pct": 0.01
+          "count": 172,
+          "pct": 0.16
         }
       }
     },
     "val": {
       "shape": [
-        5259,
-        7
+        26208,
+        8
       ],
-      "start": "2015-12-18T16:00:00",
-      "end": "2016-07-24T18:00:00",
+      "n_stations": 12,
+      "start": "2015-09-01T00:00:00",
+      "end": "2015-11-30T23:00:00",
       "missing": {
         "pm25": {
-          "count": 108,
-          "pct": 2.05
+          "count": 750,
+          "pct": 2.86
         },
         "pm10": {
-          "count": 53,
-          "pct": 1.01
+          "count": 536,
+          "pct": 2.05
         },
         "no2": {
-          "count": 75,
-          "pct": 1.43
+          "count": 577,
+          "pct": 2.2
         },
         "co": {
-          "count": 71,
-          "pct": 1.35
+          "count": 584,
+          "pct": 2.23
         },
         "so2": {
-          "count": 55,
-          "pct": 1.05
+          "count": 537,
+          "pct": 2.05
         },
         "o3": {
-          "count": 160,
-          "pct": 3.04
+          "count": 668,
+          "pct": 2.55
         },
         "temp": {
           "count": 0,
@@ -176,39 +235,40 @@
     },
     "test": {
       "shape": [
-        5261,
-        7
+        26208,
+        8
       ],
-      "start": "2016-07-24T19:00:00",
-      "end": "2017-02-28T23:00:00",
+      "n_stations": 12,
+      "start": "2015-12-01T00:00:00",
+      "end": "2016-02-29T23:00:00",
       "missing": {
         "pm25": {
-          "count": 87,
-          "pct": 1.65
+          "count": 317,
+          "pct": 1.21
         },
         "pm10": {
-          "count": 75,
-          "pct": 1.43
+          "count": 259,
+          "pct": 0.99
         },
         "no2": {
-          "count": 171,
-          "pct": 3.25
+          "count": 340,
+          "pct": 1.3
         },
         "co": {
-          "count": 113,
-          "pct": 2.15
+          "count": 382,
+          "pct": 1.46
         },
         "so2": {
-          "count": 103,
-          "pct": 1.96
+          "count": 292,
+          "pct": 1.11
         },
         "o3": {
-          "count": 152,
-          "pct": 2.89
+          "count": 363,
+          "pct": 1.39
         },
         "temp": {
-          "count": 18,
-          "pct": 0.34
+          "count": 0,
+          "pct": 0.0
         }
       }
     }
