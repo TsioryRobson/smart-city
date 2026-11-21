@@ -1,0 +1,48 @@
+# Configuration de l'entraînement (python -m novaria.pipeline.training).
+# Chaque combinaison de la grille d'un algorithme donne un run MLflow.
+# Les choix sont justifiés dans docs/training.md.
+
+# Part attendue d'anomalies : fixe le seuil d'alerte de chaque modèle
+# (quantile des scores d'entraînement), identique pour les 3 algorithmes.
+contamination: 0.01
+random_state: 42
+
+# Validation contrôlée : anomalies synthétiques injectées dans la validation,
+# jamais dans le train. Taux exprimés en part des lignes de validation.
+validation_injection:
+  spike_rate: 0.02            # pics de pollution (rôle du modèle)
+  impossible_rate: 0.005      # valeurs impossibles (rôle du nettoyage)
+  frozen_runs: 12             # séries de capteur figé (rôle de la règle « capteur figé »)
+  frozen_hours: [24, 48]      # durée min / max d'une série
+
+# Le meilleur réglage d'un algorithme maximise
+#   taux de détection des pics - taux de fausses alertes (sur la validation).
+selection_metric: val_youden_pic
+
+# Temps de réponse unitaire maximal pour un modèle utilisable par l'API (ms).
+max_latency_ms: 50
+
+# max_train_samples : échantillon stratifié (station × mois) du train si le
+# volume devient trop gros (null = tout le train). Mesuré sur 105 120 lignes :
+# LOF 19 s, One-Class SVM 18 s ; aucun échantillonnage n'est nécessaire.
+algorithms:
+  isolation_forest:
+    max_train_samples: null
+    grid:
+      scaler: [standard]      # sans effet sur des arbres : non comparé
+      n_estimators: [100, 300]
+      max_samples: [256, 2048]
+      max_features: [1.0, 0.7]
+
+  local_outlier_factor:
+    max_train_samples: null
+    grid:
+      scaler: [standard, robust]
+      n_neighbors: [20, 50, 100]
+
+  one_class_svm:
+    max_train_samples: null
+    grid:
+      scaler: [standard, robust]
+      gamma: [scale, 0.02, 0.1]
+      nu: [0.01]
