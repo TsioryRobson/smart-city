@@ -1,0 +1,5 @@
+# Dépendances du serveur MLflow (versions figées).
+# mlflow doit rester à la même version que celle des scripts (requirements.lock.txt).
+mlflow==3.18.0
+psycopg2-binary==2.9.13
+boto3==1.44.9

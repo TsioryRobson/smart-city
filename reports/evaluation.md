@@ -1,6 +1,6 @@
 # Évaluation des modèles sur le test contrôlé
 
-Généré le 2026-11-21T17:56:10+00:00 · commit `6e7e736d7b503675b9c09b54f3250ccc805e5020-dirty` · test 2015-12 → 2016-02 · 5 tirages d'anomalies · 5 réentraînements à 80% du train
+Généré le 2026-11-21T19:35:59+00:00 · commit `dca408ff15ff7df7c3985baf1130d994fa8e2ab9-dirty` · test 2015-12 → 2016-02 · 5 tirages d'anomalies · 5 réentraînements à 80% du train
 
 ## Performance (moyenne ± écart-type sur les tirages d'anomalies)
 
@@ -34,9 +34,9 @@ Fausses alertes : alertes sur les heures de référence **ordinaires**. Les heur
 
 | Modèle | Latence unitaire (ms) | Inférence (ms / ligne) | Taille du modèle |
 |---|---|---|---|
-| isolation_forest | 13.0 | 0.005 | 9.3 Mo |
-| local_outlier_factor | 14.8 | 0.209 | 100.3 Mo |
-| one_class_svm | 11.6 | 0.062 | 0.4 Mo |
+| isolation_forest | 14.3 | 0.006 | 9.3 Mo |
+| local_outlier_factor | 26.1 | 0.218 | 100.3 Mo |
+| one_class_svm | 6.3 | 0.057 | 0.4 Mo |
 
 ## Sélection
 

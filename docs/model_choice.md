@@ -12,7 +12,7 @@ Chiffres détaillés : `reports/evaluation.md`, `models/evaluation.json`, expér
 | Run d'entraînement | `a83367e6b7b149f6bac45fe3f07b02b4` |
 | Empreinte du modèle (`model_sha256`) | `075aac1834c121fd…` (complète dans `models/selection.json`) |
 | Variables | les 17 de `MODEL_FEATURES` |
-| Prochaine étape | `promotion.py` : version 1 du modèle `air-anomaly-detector`, alias `@champion` |
+| Registry (serveur MLflow Docker) | `air-anomaly-detector` v2 = ce modèle (`@champion`) ; v1 = même modèle entraîné sur 2013-09 → 2014-08 (`@previous`) |
 
 ## Protocole d'évaluation
 
@@ -89,3 +89,16 @@ si la démonstration montre trop de fausses alertes. Il est aussi le plus rapide
   elle favorise les modèles qui réagissent aux valeurs extrêmes d'une seule variable (Isolation Forest).
 - À la validation, les fausses alertes incluaient encore les épisodes réels : les chiffres de validation et de test
   ne sont donc pas directement comparables sur ce point.
+
+## Model Registry
+
+Deux versions de One-Class SVM (mêmes hyperparamètres) qui ne diffèrent que par la fenêtre de données, comparées
+par `promotion.py` sur le même test contrôlé (2015-12 → 2016-02, postérieur aux deux fenêtres) :
+
+| Version | Fenêtre d'entraînement | Détection des pics | Fausses alertes | Latence | Décision | Alias |
+|---|---|---|---|---|---|---|
+| v1 | 2013-09 → 2014-08 | 94,1 % | 3,57 % | 12,8 ms | promue (aucun champion) | `@previous` |
+| v2 | 2014-09 → 2015-08 | 95,9 % | 2,94 % | 7,3 ms | **promue par la règle** (détection ≥ v1 − 2 points, fausses alertes ≤ v1) | `@champion` |
+
+La promotion n'a pas eu besoin d'être forcée : la fenêtre la plus récente est meilleure sur les deux critères, ce qui
+justifie la fenêtre glissante de 12 mois (règle 8).
