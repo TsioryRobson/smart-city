@@ -148,6 +148,12 @@ def test_run_evaluation_end_to_end(tmp_path) -> None:
     )
     assert len(runs) == 1 + 3
     assert (runs["tags.selected"] == "true").sum() == 1
+    children = runs[runs["tags.algorithm"].notna()]
+    assert children["tags.git_sha"].notna().all()
+    assert set(children["params.algorithm"]) == set(SMALL_CONFIG["algorithms"])
+    for run_id in runs["run_id"]:
+        names = {i.dataset.name for i in mlflow.get_run(run_id).inputs.dataset_inputs}
+        assert names == {"test_controle_seed0", "test_controle_seed1"}
 
 
 def test_tampered_model_is_rejected(tmp_path) -> None:

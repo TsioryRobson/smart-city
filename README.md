@@ -136,6 +136,8 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
 Résultats, protocole et limites : [docs/training.md](docs/training.md).
+Ce qui est tracé dans MLflow (paramètres, métriques, jeux de données, commit, signatures) et comment comparer
+les 3 algorithmes dans l'interface : [docs/experiment_tracking.md](docs/experiment_tracking.md).
 
 ## Évaluation et sélection
 
