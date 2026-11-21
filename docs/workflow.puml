@@ -1,0 +1,152 @@
+@startuml workflow_sprint1
+' =============================================================================
+' Novaria Smart City AI : flux d'entraînement du sprint 1
+' Rendu : extension « PlantUML » de VS Code (Alt+D), ou
+'         plantuml docs/workflow.puml  ->  docs/workflow.png
+' Chaque étape est un script CLI (python -m novaria.pipeline.<étape>) qui lit et
+' écrit des fichiers : il deviendra un composant Kubeflow au sprint 3.
+' =============================================================================
+
+title Novaria · Flux d'entraînement (sprint 1)
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #EAF2FB
+  BorderColor #2F6DB5
+}
+skinparam partition {
+  BorderColor #888888
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #C9A227
+}
+
+|Données|
+start
+:CSV bruts des 12 stations
+""data/raw/"" (jamais modifiés);
+
+:**1. ingestion**
+lecture + contrôle des colonnes;
+note right
+  ""data/ingested/measurements.parquet""
+  ""manifest.json"" : SHA-256 de chaque CSV
+  + ""dataset_sha256""
+end note
+
+:**2. preparation** (module partagé avec Flink)
+nettoyage, variables dérivées, split par dates;
+note right
+  ""data/prepared/{train,val,test}.parquet""
+  (non normalisés) + ""metadata.json""
+  ""reports/data_quality.json""
+  ""logs/data_checks.log""
+  train 2014-09 → 2015-08 · val 2015-09 → 11
+  test 2015-12 → 2016-02 · démo 2016-03 → 2017-02 exclue
+end note
+
+|Modèles|
+:**3. training**
+3 algorithmes × grille YAML (20 réglages)
+validation contrôlée (anomalies injectées);
+note right
+  IsolationForest · LOF · One-Class SVM
+  seuil calibré à 1 % du train
+  meilleur réglage par algorithme
+  -> ""models/<algo>/"" (skops, ""model_sha256"")
+  -> ""models/comparison.json""
+end note
+
+:**injection**
+5 jeux de test contrôlés figés
+(pics, valeurs impossibles, capteur figé);
+note right
+  ""data/controlled/test_seed{0..4}.parquet""
+  ""manifest.json"" (empreintes)
+  jamais sur le train
+end note
+
+:**4. evaluation**
+mêmes jeux de test pour les 3 modèles
+performance, stabilité, coût;
+note right
+  empreintes vérifiées avant usage
+  -> ""models/selection.json"" (One-Class SVM)
+  -> ""reports/evaluation.md""
+end note
+
+:**5. promotion**
+candidat contre @champion
+sur les mêmes jeux de test;
+
+if (détection ≥ champion − 2 points
+ET fausses alertes ≤ champion
+ET latence ≤ 50 ms ?) then (oui)
+  :nouvelle version → **@champion**
+  ancien champion → **@previous**;
+else (non)
+  if (--force ?) then (oui)
+    :promue quand même
+    (tag ""forced=true"");
+  else (non)
+    :version enregistrée
+    décision **refuse**;
+  endif
+endif
+
+|MLflow (Docker)|
+:Model Registry ""air-anomaly-detector""
+v1 (fenêtre 2013-09 → 2014-08) : @previous
+v2 (fenêtre 2014-09 → 2015-08) : @champion;
+stop
+
+legend right
+  **Suivi MLflow à chaque étape 3, 4 et 5**
+  runs, paramètres, métriques, ""git_sha"",
+  ""dataset_sha256"", jeux de données (onglet Datasets)
+  ----
+  **Infrastructure** (docker-compose.yml)
+  MLflow :5000 → PostgreSQL (métadonnées)
+                         → MinIO (artefacts, bucket ""mlflow"")
+  ----
+  Sprint 2 : l'API charge ""@champion"" et vérifie ""model_sha256""
+endlegend
+
+@enduml
+
+@startuml infrastructure_sprint1
+' Composants du sprint 1 et leurs échanges.
+title Novaria · Infrastructure MLOps (sprint 1)
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam componentStyle rectangle
+
+node "Machine (WSL)" {
+  component "Scripts du pipeline\n""python -m novaria.pipeline.*""" as scripts
+  folder "Fichiers locaux" {
+    [data/ (raw, ingested, prepared, controlled)] as data
+    [models/ (modèles, comparison, selection)] as models
+  }
+}
+
+node "Docker Compose (127.0.0.1)" {
+  component "MLflow 3.18\nsuivi + Model Registry\n:5000" as mlflow
+  database "PostgreSQL 16\nmétadonnées\n:5433 (machine)" as postgres
+  storage "MinIO (Chainguard)\nbucket ""mlflow""\n:9000 / :9001" as minio
+}
+
+scripts --> data : lit / écrit
+scripts --> models : écrit
+scripts --> mlflow : HTTP\n""MLFLOW_TRACKING_URI""
+mlflow --> postgres : runs, paramètres,\nmétriques, versions, alias
+mlflow --> minio : artefacts (S3)\n--serve-artifacts
+
+note bottom of mlflow
+  Les scripts ne connaissent que l'URL MLflow :
+  seuls les conteneurs ont les secrets (.env).
+end note
+@enduml

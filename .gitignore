@@ -26,3 +26,7 @@ logs/
 .ipynb_checkpoints/
 *.egg-info/
 /models/
+
+# Paquets Python téléchargés pour construire l image MLflow
+infra/mlflow/wheels/*
+!infra/mlflow/wheels/.gitkeep

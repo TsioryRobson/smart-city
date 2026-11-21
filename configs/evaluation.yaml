@@ -31,3 +31,10 @@ selection:
   metric: test_youden_pic
   tolerance: 0.02
   max_latency_ms: 50
+
+# Promotion (CLAUDE.md, section 7) : le challenger remplace @champion seulement
+# si, sur ces mêmes jeux contrôlés, sa détection des pics est au moins celle du
+# champion moins detection_tolerance, ses fausses alertes sont inférieures ou
+# égales et sa latence reste sous selection.max_latency_ms.
+promotion:
+  detection_tolerance: 0.02

@@ -1,0 +1,31 @@
+# Version 1 du modèle retenu (Model Registry) : fenêtre de données PRÉCÉDENTE.
+#
+# Même algorithme et mêmes hyperparamètres que le modèle retenu par
+# l'évaluation (One-Class SVM, gamma 0,1, RobustScaler), mais entraîné sur
+# 2013-09 → 2014-08 au lieu de 2014-09 → 2015-08. La seule différence entre
+# les 2 versions est donc la fenêtre de données (fenêtre glissante de 12 mois).
+#
+#   python -m novaria.pipeline.preparation --output data/prepared_window_2013 \
+#       --train-start 2013-09-01 --val-start 2014-09-01 --test-start 2014-12-01 --test-end 2015-03-01 ...
+#   python -m novaria.pipeline.training --input data/prepared_window_2013 \
+#       --output models/window_2013 --config configs/training_previous_window.yaml ...
+
+contamination: 0.01
+random_state: 42
+
+validation_injection:
+  spike_rate: 0.02
+  impossible_rate: 0.005
+  frozen_runs: 12
+  frozen_hours: [24, 48]
+
+selection_metric: val_youden_pic
+max_latency_ms: 50
+
+algorithms:
+  one_class_svm:
+    max_train_samples: null
+    grid:
+      scaler: [robust]
+      gamma: [0.1]
+      nu: [0.01]

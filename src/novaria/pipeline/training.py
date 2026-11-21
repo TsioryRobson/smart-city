@@ -442,7 +442,12 @@ def run_training(
     )
 
     sha = git_sha()
-    common_tags = {"git_sha": sha, "dataset_sha256": metadata["dataset_sha256"]}
+    train_period = f"{train.index.min():%Y-%m} -> {train.index.max():%Y-%m}"
+    common_tags = {
+        "git_sha": sha,
+        "dataset_sha256": metadata["dataset_sha256"],
+        "train_period": train_period,
+    }
     setup_mlflow(tracking_uri)
 
     summary: dict[str, Any] = {

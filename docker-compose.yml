@@ -1,0 +1,101 @@
+# =============================================================================
+# Novaria Smart City AI : infrastructure MLOps du sprint 1
+#
+#   postgres : base des métadonnées MLflow (expériences, runs, Registry)
+#   minio    : stockage S3 des artefacts MLflow (modèles, rapports, jeux)
+#   mlflow   : serveur de suivi + Model Registry ; sert les artefacts par HTTP
+#              (les scripts n'ont pas besoin des identifiants MinIO)
+#
+# Prérequis : cp .env.example .env, puis remplacer chaque mot de passe.
+# Démarrage : docker compose up -d --build
+# Interfaces : MLflow http://localhost:5000 · console MinIO http://localhost:9001
+# Scripts :   export MLFLOW_TRACKING_URI=http://localhost:5000
+#
+# Sécurité : images figées par digest, ports exposés sur 127.0.0.1 seulement,
+# conteneurs non-root, aucun secret dans ce fichier.
+# =============================================================================
+
+name: novaria
+
+services:
+  postgres:
+    image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?à définir dans .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?à définir dans .env}
+      POSTGRES_DB: ${POSTGRES_DB:-mlflow}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Port côté machine configurable : 5432 peut être pris par un PostgreSQL
+      # installé localement. MLflow utilise le réseau Docker (postgres:5432).
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  minio:
+    # Images officielles MinIO retirées de Docker Hub et Quay (fin 2025) :
+    # image Chainguard maintenue, figée par digest (voir docs/infrastructure.md).
+    image: cgr.dev/chainguard/minio@sha256:e9cf6b99c226e9539ed0f14b6f00e37b07da153c7ba1f4f8709c807574b471ec
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?à définir dans .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?à définir dans .env}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  mlflow:
+    build:
+      context: ./infra/mlflow
+    image: novaria/mlflow:3.18.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mlflow}
+      MLFLOW_BUCKET: ${MLFLOW_BUCKET:-mlflow}
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      # Tâches de fond MLflow (fonctions GenAI : évaluation de traces...) : inutiles
+      # ici. Activées, elles lancent ~8 processus de 240 Mo, et leur arrêt par
+      # manque de mémoire arrête tout le serveur.
+      MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
+      # En-têtes Host acceptés (protection contre le DNS rebinding).
+      MLFLOW_ALLOWED_HOSTS: localhost,localhost:5000,127.0.0.1,127.0.0.1:5000,mlflow,mlflow:5000
+    ports:
+      - "127.0.0.1:5000:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          # ~550 Mo avec un processus de travail et sans tâches de fond.
+          memory: 1G
+
+volumes:
+  pgdata:
+  minio-data:

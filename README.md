@@ -20,7 +20,7 @@ src/novaria/
 ├── common/          # config, fichiers, MLflow (tracking.py), générateur d'anomalies (injection.py)
 ├── preparation/     # module de préparation PARTAGÉ entre l'entraînement et Flink
 ├── models/          # détecteurs : les 3 algorithmes avec un seuil calibré commun
-└── pipeline/        # scripts CLI : ingestion, preparation, training, injection, evaluation (puis promotion)
+└── pipeline/        # scripts CLI : ingestion, preparation, training, injection, evaluation, promotion
 configs/             # configuration de l'entraînement et de l'évaluation
 notebooks/           # exploration Jupyter
 docs/                # décisions techniques justifiées
@@ -30,6 +30,20 @@ data/                # données, non versionnées : raw/, ingested/, prepared/, 
 models/              # modèles entraînés, non versionnés
 logs/                # journal de vérification des données, non versionné
 ```
+
+## Infrastructure (Docker Compose)
+
+PostgreSQL (métadonnées), MinIO (artefacts) et le serveur MLflow (suivi + Model Registry) :
+
+```bash
+cp .env.example .env      # remplacer chaque « changeme » (openssl rand -hex 24)
+docker compose up -d --build
+export MLFLOW_TRACKING_URI=http://localhost:5000
+```
+
+Interfaces : MLflow http://localhost:5000 · console MinIO http://localhost:9001. Images figées par digest,
+ports sur 127.0.0.1 seulement, conteneurs non-root. Détails et choix : [docs/infrastructure.md](docs/infrastructure.md).
+Sans `MLFLOW_TRACKING_URI`, les scripts utilisent un suivi local (`mlflow.db`).
 
 ## Installation (WSL Ubuntu)
 
@@ -56,12 +70,16 @@ Les dates sont dans `src/novaria/common/config.py` et peuvent être passées en 
 
 ## Pipeline (sprint 1)
 
+Schéma du flux et de l'infrastructure (PlantUML) : [docs/workflow.puml](docs/workflow.puml).
+Affichage : extension « PlantUML » de VS Code (Alt+D).
+
 ```bash
 python -m novaria.pipeline.ingestion     # data/raw/ -> data/ingested/
 python -m novaria.pipeline.preparation   # data/ingested/ -> data/prepared/
 python -m novaria.pipeline.training      # data/prepared/ -> models/ + MLflow (≈ 8 min)
 python -m novaria.pipeline.injection     # data/prepared/test -> data/controlled/ (anomalies injectées)
 python -m novaria.pipeline.evaluation    # -> models/selection.json, reports/evaluation.md (≈ 3 min)
+python -m novaria.pipeline.promotion     # -> Model Registry : version, @champion / @previous
 ```
 
 Chaque script lit et écrit des fichiers et prend sa configuration en arguments (`--help`) :
@@ -159,6 +177,31 @@ alertes à 0,02 près) écrit le modèle retenu dans `models/selection.json`, po
 **Modèle retenu : One-Class SVM**, avec 96 % des pics détectés, 2,9 % de fausses alertes, 0,4 Mo et 8 ms par mesure.
 La justification, l'alternative Isolation Forest et les limites sont dans [docs/model_choice.md](docs/model_choice.md).
 Les résultats détaillés sont dans [reports/evaluation.md](reports/evaluation.md).
+
+## Model Registry et promotion
+
+**Promotion** (`promotion.py`) : enregistre le modèle retenu comme nouvelle version de `air-anomaly-detector`
+(tags : `model_sha256`, `git_sha`, `dataset_sha256`, `train_period`, hyperparamètres). Il devient `@champion`
+seulement si, sur les mêmes jeux de test contrôlés que le champion actuel, sa détection des pics est au moins
+celle du champion à 2 points près, ses fausses alertes sont inférieures ou égales et sa latence ≤ 50 ms.
+L'ancien champion devient `@previous` (rollback). Sinon la version est enregistrée avec la décision `refuse`.
+`--force` promeut malgré un refus, et c'est tracé (tag `forced`).
+
+Deux versions du même modèle (One-Class SVM, mêmes hyperparamètres), qui ne diffèrent que par la fenêtre de données :
+
+```bash
+# v1 : fenêtre précédente (2013-09 -> 2014-08)
+python -m novaria.pipeline.preparation --output data/prepared_window_2013 \
+    --report data/prepared_window_2013/quality.json --log logs/data_checks_window_2013.log \
+    --train-start 2013-09-01 --val-start 2014-09-01 --test-start 2014-12-01 --test-end 2015-03-01
+python -m novaria.pipeline.training --input data/prepared_window_2013 --output models/window_2013 \
+    --config configs/training_previous_window.yaml --report models/window_2013/training_comparison.md
+python -m novaria.pipeline.promotion --models models/window_2013 --algorithm one_class_svm
+# v2 : fenêtre actuelle (2014-09 -> 2015-08), modèle choisi par l'évaluation
+python -m novaria.pipeline.promotion --models models
+```
+
+Les deux versions sont comparées sur le même test contrôlé (2015-12 → 2016-02), postérieur aux deux fenêtres.
 
 ## Exploration
 
