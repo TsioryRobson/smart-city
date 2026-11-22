@@ -31,6 +31,32 @@ models/              # modèles entraînés, non versionnés
 logs/                # journal de vérification des données, non versionné
 ```
 
+## Premier démarrage après un clone
+
+Ce que Git ne contient pas, volontairement : `.env` (secrets), `data/raw/` (CSV du dataset), les images Docker
+(construites en local, sans registre) et les paquets téléchargés (`infra/mlflow/wheels/`, `kubeflow/check/wheels/`,
+facultatifs). Dans l'ordre :
+
+1. **Prérequis** : WSL Ubuntu, Python 3.12, Docker Desktop avec Kubernetes activé en mode **kubeadm**
+   (Settings → Kubernetes ; contexte `docker-desktop`).
+2. **Secrets** : `cp .env.example .env`, puis remplacer chaque `changeme` (`openssl rand -hex 24`).
+   Si le port 5432 est déjà pris sur la machine, changer `POSTGRES_HOST_PORT`.
+3. **Données** : placer les 12 CSV dans `data/raw/` (voir [Données](#données)).
+4. **Environnements Python** :
+   ```bash
+   python3 -m venv .venv && source .venv/bin/activate
+   pip install -r requirements.lock.txt && pip install -e .
+   python3 -m venv .venv-kfp && .venv-kfp/bin/pip install -r kubeflow/requirements.txt
+   ```
+5. **Stack MLflow** : `docker compose up -d --build`, puis `export MLFLOW_TRACKING_URI=http://localhost:5000`.
+6. **Sprint 1** (crée les modèles et `@champion` / `@previous` dans le Registry) : enchaîner les scripts de
+   [Pipeline](#pipeline-sprint-1) à [Model Registry et promotion](#model-registry-et-promotion), v1 puis v2.
+7. **Kubeflow** : section [Kubernetes et Kubeflow Pipelines](#kubernetes-et-kubeflow-pipelines-sprint-2), puis
+   le pipeline de validation de [docs/kubeflow.md](docs/kubeflow.md) (il vérifie que `@champion` existe).
+8. **Vérifier** : `pytest -q` et `ruff check .`.
+
+Sans dossier `wheels/` rempli, les images téléchargent leurs paquets sur PyPI : c'est seulement plus lent.
+
 ## Infrastructure (Docker Compose)
 
 PostgreSQL (métadonnées), MinIO (artefacts) et le serveur MLflow (suivi + Model Registry) :
@@ -177,6 +203,20 @@ alertes à 0,02 près) écrit le modèle retenu dans `models/selection.json`, po
 **Modèle retenu : One-Class SVM**, avec 96 % des pics détectés, 2,9 % de fausses alertes, 0,4 Mo et 8 ms par mesure.
 La justification, l'alternative Isolation Forest et les limites sont dans [docs/model_choice.md](docs/model_choice.md).
 Les résultats détaillés sont dans [reports/evaluation.md](reports/evaluation.md).
+
+## Kubernetes et Kubeflow Pipelines (sprint 2)
+
+Kubeflow Pipelines 2.18.0 standalone sur le Kubernetes de Docker Desktop (kubeadm), branché sur MLflow et MinIO :
+
+```bash
+./kubeflow/pull-images.sh && ./kubeflow/install.sh
+set -a; . ./.env; set +a; python infra/minio/setup_pipeline_access.py && ./kubeflow/configure-access.sh
+kubectl -n kubeflow port-forward svc/ml-pipeline-ui 8080:80     # http://localhost:8080
+```
+
+Les pods n'accèdent qu'à MLflow et au bucket `novaria-data` de MinIO (compte dédié, écriture seulement sous
+`datasets/`) ; PostgreSQL n'est plus publié. Le SDK `kfp` est dans un venv séparé (`.venv-kfp`,
+`kubeflow/requirements.txt`). Installation, choix et points de sécurité : [docs/kubeflow.md](docs/kubeflow.md).
 
 ## Model Registry et promotion
 

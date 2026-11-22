@@ -1,0 +1,12 @@
+# Accès SQL ponctuel à PostgreSQL depuis la machine (DBeaver, psql...).
+# Non chargé par défaut : un port publié est aussi joignable depuis les pods
+# Kubernetes via host.docker.internal, alors que seul MLflow doit utiliser la base.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.sql-access.yml up -d
+#   ... puis, une fois terminé :
+#   docker compose up -d        (retire le port publié)
+services:
+  postgres:
+    ports:
+      # 5432 peut être pris par un PostgreSQL installé localement (.env : POSTGRES_HOST_PORT).
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"

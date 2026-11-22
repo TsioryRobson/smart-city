@@ -117,9 +117,9 @@ endlegend
 
 @enduml
 
-@startuml infrastructure_sprint1
-' Composants du sprint 1 et leurs échanges.
-title Novaria · Infrastructure MLOps (sprint 1)
+@startuml infrastructure
+' Composants de l'infrastructure (sprints 1 et 2) et leurs échanges.
+title Novaria · Infrastructure MLOps (sprints 1 et 2)
 
 skinparam shadowing false
 skinparam defaultFontName Arial
@@ -127,26 +127,40 @@ skinparam componentStyle rectangle
 
 node "Machine (WSL)" {
   component "Scripts du pipeline\n""python -m novaria.pipeline.*""" as scripts
+  component "SDK kfp (.venv-kfp)\ncompile et soumet" as sdk
   folder "Fichiers locaux" {
-    [data/ (raw, ingested, prepared, controlled)] as data
-    [models/ (modèles, comparison, selection)] as models
+    [data/ (raw, prepared, controlled)] as data
+    [models/] as models
   }
 }
 
 node "Docker Compose (127.0.0.1)" {
   component "MLflow 3.18\nsuivi + Model Registry\n:5000" as mlflow
-  database "PostgreSQL 16\nmétadonnées\n:5433 (machine)" as postgres
-  storage "MinIO (Chainguard)\nbucket ""mlflow""\n:9000 / :9001" as minio
+  database "PostgreSQL 16\nmétadonnées MLflow\n(aucun port publié)" as postgres
+  storage "MinIO (Chainguard)\nbuckets ""mlflow"" et ""novaria-data""\n:9000 / :9001" as minio
+}
+
+node "Kubernetes de Docker Desktop (kubeadm)" {
+  package "namespace kubeflow" {
+    component "Kubeflow Pipelines 2.18\nAPI + interface (:8080 en port-forward)\nArgo, MySQL et SeaweedFS internes" as kfp
+    component "Étapes du pipeline\n(pods, images locales)" as steps
+    [ConfigMap novaria-pipeline-config\nSecret novaria-minio-pipeline] as config
+  }
 }
 
 scripts --> data : lit / écrit
 scripts --> models : écrit
 scripts --> mlflow : HTTP\n""MLFLOW_TRACKING_URI""
+sdk --> kfp : soumet les runs
+kfp --> steps : lance
+config ..> steps : variables d'environnement
+steps --> mlflow : host.docker.internal:5000\nsuivi, Registry
+steps --> minio : host.docker.internal:9000\ncompte novaria-pipeline\n(lecture raw/, écriture datasets/)
 mlflow --> postgres : runs, paramètres,\nmétriques, versions, alias
 mlflow --> minio : artefacts (S3)\n--serve-artifacts
 
-note bottom of mlflow
-  Les scripts ne connaissent que l'URL MLflow :
-  seuls les conteneurs ont les secrets (.env).
+note bottom of postgres
+  Inaccessible aux pods : seul MLflow
+  utilise la base (réseau Docker).
 end note
 @enduml

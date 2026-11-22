@@ -1,0 +1,92 @@
+# PIPELINE DEFINITION
+# Name: novaria-validation
+# Description: Valide l'accès des pods Kubeflow à MinIO et MLflow (sprint 1).
+components:
+  comp-check-minio:
+    executorLabel: exec-check-minio
+  comp-check-mlflow:
+    executorLabel: exec-check-mlflow
+deploymentSpec:
+  executors:
+    exec-check-minio:
+      container:
+        args:
+        - minio
+        command:
+        - python
+        - /app/check_access.py
+        image: novaria/kfp-check:0.1.0
+    exec-check-mlflow:
+      container:
+        args:
+        - mlflow
+        command:
+        - python
+        - /app/check_access.py
+        image: novaria/kfp-check:0.1.0
+pipelineInfo:
+  description: "Valide l'acc\xE8s des pods Kubeflow \xE0 MinIO et MLflow (sprint 1)."
+  name: novaria-validation
+root:
+  dag:
+    tasks:
+      check-minio:
+        cachingOptions: {}
+        componentRef:
+          name: comp-check-minio
+        taskInfo:
+          name: check-minio
+      check-mlflow:
+        cachingOptions: {}
+        componentRef:
+          name: comp-check-mlflow
+        taskInfo:
+          name: check-mlflow
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.18.0
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-check-minio:
+          configMapAsEnv:
+          - configMapName: novaria-pipeline-config
+            configMapNameParameter:
+              runtimeValue:
+                constant: novaria-pipeline-config
+            keyToEnv:
+            - configMapKey: MLFLOW_TRACKING_URI
+              envVar: MLFLOW_TRACKING_URI
+            - configMapKey: MINIO_ENDPOINT
+              envVar: MINIO_ENDPOINT
+            - configMapKey: NOVARIA_DATA_BUCKET
+              envVar: NOVARIA_DATA_BUCKET
+            optional: false
+          imagePullPolicy: IfNotPresent
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: MINIO_ACCESS_KEY
+              secretKey: MINIO_ACCESS_KEY
+            - envVar: MINIO_SECRET_KEY
+              secretKey: MINIO_SECRET_KEY
+            optional: false
+            secretName: novaria-minio-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: novaria-minio-pipeline
+        exec-check-mlflow:
+          configMapAsEnv:
+          - configMapName: novaria-pipeline-config
+            configMapNameParameter:
+              runtimeValue:
+                constant: novaria-pipeline-config
+            keyToEnv:
+            - configMapKey: MLFLOW_TRACKING_URI
+              envVar: MLFLOW_TRACKING_URI
+            - configMapKey: MINIO_ENDPOINT
+              envVar: MINIO_ENDPOINT
+            - configMapKey: NOVARIA_DATA_BUCKET
+              envVar: NOVARIA_DATA_BUCKET
+            optional: false
+          imagePullPolicy: IfNotPresent
