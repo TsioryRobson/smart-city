@@ -8,6 +8,7 @@ from novaria.common.tracking import (
     git_sha,
     local_artifacts_dir,
     log_dataset,
+    pipeline_run_tags,
     resolve_tracking_uri,
     setup_mlflow,
 )
@@ -77,3 +78,29 @@ def test_log_dataset_records_input_with_hash(tmp_path) -> None:
     assert tags["sha256"] == sha
     assert tags["seed"] == "3"
     assert tags["mlflow.data.context"] == "entrainement"
+
+
+def test_git_sha_from_image_variable(monkeypatch) -> None:
+    """Vérifie que le commit donné à la construction de l'image est prioritaire.
+
+    Dans une étape Kubeflow, l'image ne contient pas de dépôt Git.
+
+    Args:
+        monkeypatch: outil pytest pour modifier l'environnement.
+    """
+    monkeypatch.setenv("NOVARIA_GIT_SHA", "abc123-dirty")
+    assert git_sha() == "abc123-dirty"
+
+
+def test_pipeline_run_tags(monkeypatch) -> None:
+    """Vérifie le tag du run Kubeflow : présent dans une étape, absent en local.
+
+    Args:
+        monkeypatch: outil pytest pour modifier l'environnement.
+    """
+    monkeypatch.delenv("KFP_RUN_ID", raising=False)
+    assert pipeline_run_tags() == {}
+    monkeypatch.setenv("KFP_RUN_ID", "")
+    assert pipeline_run_tags() == {}
+    monkeypatch.setenv("KFP_RUN_ID", "run-1")
+    assert pipeline_run_tags() == {"kfp_run_id": "run-1"}

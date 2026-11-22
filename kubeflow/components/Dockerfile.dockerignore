@@ -1,0 +1,9 @@
+# Contexte de construction de kubeflow/components/Dockerfile (racine du dépôt) :
+# seulement ce que l'image utilise. Jamais .env, data/, models/ ni mlflow.db.
+*
+!configs/
+!src/novaria/
+!kubeflow/components/requirements.txt
+!kubeflow/components/wheels/
+**/__pycache__
+**/*.pyc

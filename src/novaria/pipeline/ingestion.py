@@ -9,11 +9,15 @@ valeur :
 
 Exécution :
 ``python -m novaria.pipeline.ingestion --input data/raw --output data/ingested``
+
+Dans Kubeflow, les CSV sont lus dans MinIO (``--source-bucket novaria-data``,
+préfixe ``raw/``) et non sur le disque local.
 """
 
 from __future__ import annotations
 
 import argparse
+import tempfile
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -80,7 +84,10 @@ def read_station_csv(path: str | Path) -> pd.DataFrame:
 
 
 def ingest(
-    input_dir: str | Path, output_dir: str | Path, pattern: str = RAW_FILE_PATTERN
+    input_dir: str | Path,
+    output_dir: str | Path,
+    pattern: str = RAW_FILE_PATTERN,
+    source: str | None = None,
 ) -> dict[str, Any]:
     """Ingère tous les CSV de station et écrit le Parquet brut et son manifeste.
 
@@ -88,6 +95,8 @@ def ingest(
         input_dir: dossier des CSV bruts.
         output_dir: dossier de sortie (créé si besoin).
         pattern: motif des CSV de station.
+        source: provenance des CSV écrite dans le manifeste (ex.
+            ``minio://novaria-data/raw/``) ; défaut : le dossier ``input_dir``.
 
     Returns:
         Le manifeste écrit dans ``manifest.json``.
@@ -111,7 +120,7 @@ def ingest(
     ]
     manifest = {
         "ingested_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "source_dir": str(Path(input_dir).resolve()),
+        "source_dir": source or str(Path(input_dir).resolve()),
         "n_files": len(files),
         "n_rows": len(measurements),
         "dataset_sha256": combined_sha256(f["sha256"] for f in files),
@@ -122,6 +131,30 @@ def ingest(
     return manifest
 
 
+def ingest_from_minio(
+    bucket: str, prefix: str, output_dir: str | Path, pattern: str = RAW_FILE_PATTERN
+) -> dict[str, Any]:
+    """Télécharge les CSV bruts depuis MinIO, puis les ingère.
+
+    Les CSV sont copiés dans un dossier temporaire, supprimé après
+    l'ingestion. Les empreintes du manifeste sont celles des fichiers lus.
+
+    Args:
+        bucket: bucket des données (ex. ``novaria-data``).
+        prefix: préfixe des CSV bruts (ex. ``raw/``).
+        output_dir: dossier de sortie (créé si besoin).
+        pattern: motif des CSV de station.
+
+    Returns:
+        Le manifeste écrit dans ``manifest.json``.
+    """
+    from novaria.common.storage import client_from_env, download_prefix
+
+    with tempfile.TemporaryDirectory(prefix="novaria-raw-") as tmp:
+        download_prefix(client_from_env(), bucket, prefix, tmp, pattern)
+        return ingest(tmp, output_dir, pattern, source=f"minio://{bucket}/{prefix}")
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Lit les arguments de la ligne de commande.
 
@@ -129,7 +162,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         argv: arguments à analyser (défaut : ceux du processus).
 
     Returns:
-        Les arguments : ``input``, ``output`` et ``pattern``.
+        Les arguments : ``input``, ``output``, ``pattern``, et la source
+        MinIO (``source_bucket``, ``source_prefix``).
     """
     parser = argparse.ArgumentParser(description="Ingestion des CSV bruts de station.")
     parser.add_argument(
@@ -141,6 +175,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--pattern", default=RAW_FILE_PATTERN, help="motif des CSV de station"
     )
+    parser.add_argument(
+        "--source-bucket",
+        default=None,
+        help="lire les CSV dans ce bucket MinIO au lieu de --input",
+    )
+    parser.add_argument(
+        "--source-prefix", default="raw/", help="préfixe des CSV dans le bucket"
+    )
     return parser.parse_args(argv)
 
 
@@ -151,7 +193,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         argv: arguments de la ligne de commande (défaut : ceux du processus).
     """
     args = parse_args(argv)
-    manifest = ingest(args.input, args.output, args.pattern)
+    if args.source_bucket:
+        manifest = ingest_from_minio(
+            args.source_bucket, args.source_prefix, args.output, args.pattern
+        )
+    else:
+        manifest = ingest(args.input, args.output, args.pattern)
     print(f"{manifest['n_files']} fichiers, {manifest['n_rows']} lignes ingérées")
     print(f"Empreinte du jeu : {manifest['dataset_sha256']}")
     print(f"Sortie : {args.output / MEASUREMENTS_FILE}")

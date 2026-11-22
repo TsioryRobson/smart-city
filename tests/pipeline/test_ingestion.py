@@ -8,11 +8,12 @@ from novaria.pipeline.ingestion import (
     MANIFEST_FILE,
     MEASUREMENTS_FILE,
     ingest,
+    ingest_from_minio,
     list_station_files,
     main,
     read_station_csv,
 )
-from tests.factories import raw_csv_frame, write_raw_csvs
+from tests.factories import FakeMinio, raw_csv_frame, write_raw_csvs
 
 
 def test_ingest_writes_parquet_and_manifest(tmp_path) -> None:
@@ -101,3 +102,28 @@ def test_cli(tmp_path, capsys) -> None:
 
     assert (tmp_path / "out" / MEASUREMENTS_FILE).exists()
     assert "2 fichiers" in capsys.readouterr().out
+
+
+def test_ingest_from_minio(tmp_path, monkeypatch) -> None:
+    """Vérifie l'ingestion depuis MinIO : mêmes empreintes qu'en local, provenance MinIO.
+
+    Args:
+        tmp_path: dossier temporaire fourni par pytest.
+        monkeypatch: outil pytest pour remplacer le client MinIO.
+    """
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    paths = write_raw_csvs(raw_dir)
+    client = FakeMinio()
+    for path in paths:
+        client.fput_object("novaria-data", f"raw/{path.name}", str(path))
+    monkeypatch.setattr("novaria.common.storage.client_from_env", lambda: client)
+
+    manifest = ingest_from_minio("novaria-data", "raw/", tmp_path / "out")
+
+    assert manifest["source_dir"] == "minio://novaria-data/raw/"
+    assert (
+        manifest["dataset_sha256"]
+        == ingest(raw_dir, tmp_path / "local")["dataset_sha256"]
+    )
+    assert (tmp_path / "out" / MEASUREMENTS_FILE).exists()

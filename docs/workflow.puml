@@ -4,7 +4,8 @@
 ' Rendu : extension « PlantUML » de VS Code (Alt+D), ou
 '         plantuml docs/workflow.puml  ->  docs/workflow.png
 ' Chaque étape est un script CLI (python -m novaria.pipeline.<étape>) qui lit et
-' écrit des fichiers : il deviendra un composant Kubeflow au sprint 3.
+' écrit des fichiers : c'est aussi une étape du pipeline Kubeflow (schéma
+' training_pipeline ci-dessous).
 ' =============================================================================
 
 title Novaria · Flux d'entraînement (sprint 1)
@@ -143,7 +144,7 @@ node "Docker Compose (127.0.0.1)" {
 node "Kubernetes de Docker Desktop (kubeadm)" {
   package "namespace kubeflow" {
     component "Kubeflow Pipelines 2.18\nAPI + interface (:8080 en port-forward)\nArgo, MySQL et SeaweedFS internes" as kfp
-    component "Étapes du pipeline\n(pods, images locales)" as steps
+    component "Étapes du pipeline\n(pods, image novaria/pipeline locale)" as steps
     [ConfigMap novaria-pipeline-config\nSecret novaria-minio-pipeline] as config
   }
 }
@@ -162,5 +163,55 @@ mlflow --> minio : artefacts (S3)\n--serve-artifacts
 note bottom of postgres
   Inaccessible aux pods : seul MLflow
   utilise la base (réseau Docker).
+end note
+@enduml
+
+@startuml training_pipeline
+' Pipeline Kubeflow d'entraînement (kubeflow/pipelines/training_pipeline.py).
+' Chaque étape est un pod qui lance un script de novaria.pipeline dans l'image
+' novaria/pipeline ; les dossiers échangés sont des artefacts Kubeflow.
+title Novaria · Pipeline Kubeflow d'entraînement (sprint 2)
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #EAF2FB
+  BorderColor #2F6DB5
+}
+
+start
+:1. ingestion
+lit ""novaria-data/raw/"" (MinIO);
+:2. preparation
+nettoyage, variables, split chronologique
+publie ""datasets/prepared/<empreinte>/"";
+fork
+  :3. training · Isolation Forest;
+fork again
+  :3. training · LOF;
+fork again
+  :3. training · One-Class SVM;
+fork again
+  :4a. injection
+  5 tests contrôlés (jamais le train);
+end fork
+:4b. evaluation
+fusion des 3 sorties, même protocole,
+choix du modèle (""selection.json"");
+:5. promotion
+version du Registry, comparaison à @champion;
+if (règle de promotion respectée ?) then (oui)
+  :@champion = nouvelle version
+  ancien champion = @previous;
+else (non)
+  :version enregistrée, décision ""refuse"";
+endif
+stop
+
+note right
+  Runs MLflow de chaque étape :
+  tags ""git_sha"", ""dataset_sha256"",
+  ""kfp_run_id"" (lien avec Kubeflow).
 end note
 @enduml

@@ -147,6 +147,30 @@ def prepare(
     return metadata
 
 
+def publish_prepared(
+    output_dir: str | Path, metadata: dict[str, Any], bucket: str, prefix: str
+) -> str:
+    """Publie les jeux préparés dans MinIO, sous un dossier nommé par leur empreinte.
+
+    Le même contenu va toujours au même endroit : un jeu publié est versionné
+    par son empreinte (``dataset_sha256``) et le republier ne change rien.
+
+    Args:
+        output_dir: dossier de sortie de la préparation (Parquet + métadonnées).
+        metadata: métadonnées renvoyées par ``prepare``.
+        bucket: bucket des données (ex. ``novaria-data``).
+        prefix: préfixe des jeux préparés (ex. ``datasets/prepared``).
+
+    Returns:
+        L'adresse du jeu publié (``minio://<bucket>/<préfixe>/<empreinte>/``).
+    """
+    from novaria.common.storage import client_from_env, upload_directory
+
+    target = f"{prefix.rstrip('/')}/{metadata['dataset_sha256'][:16]}"
+    upload_directory(client_from_env(), output_dir, bucket, target)
+    return f"minio://{bucket}/{target}/"
+
+
 def print_splits(summaries: dict[str, dict[str, Any]]) -> None:
     """Affiche le résumé de chaque jeu (lignes, stations, période, manquants).
 
@@ -169,7 +193,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     Returns:
         Les arguments : dossiers d'entrée et de sortie, chemins du rapport et
-        du journal, et bornes du split.
+        du journal, bornes du split et destination MinIO éventuelle.
     """
     parser = argparse.ArgumentParser(description="Préparation des données ingérées.")
     parser.add_argument(
@@ -193,6 +217,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--test-end", type=pd.Timestamp, default=DEMO_START, help="exclue"
     )
+    parser.add_argument(
+        "--publish-bucket",
+        default=None,
+        help="publier aussi les jeux préparés dans ce bucket MinIO",
+    )
+    parser.add_argument(
+        "--publish-prefix",
+        default="datasets/prepared",
+        help="préfixe des jeux publiés (suivi de leur empreinte)",
+    )
     return parser.parse_args(argv)
 
 
@@ -215,6 +249,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     print(f"Rapport qualité : {args.report}")
     print(f"Journal de vérification : {args.log}")
+    if args.publish_bucket:
+        location = publish_prepared(
+            args.output, metadata, args.publish_bucket, args.publish_prefix
+        )
+        print(f"Jeux publiés : {location}")
 
 
 if __name__ == "__main__":

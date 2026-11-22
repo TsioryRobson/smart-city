@@ -15,6 +15,10 @@ champion sont faits plus tard (``evaluation.py``, ``promotion.py``).
 
 Exécution :
 ``python -m novaria.pipeline.training --input data/prepared --output models``
+
+Dans Kubeflow, chaque algorithme est entraîné dans sa propre étape
+(``--algorithms one_class_svm``) ; ``evaluation.py`` fusionne ensuite les
+sorties.
 """
 
 from __future__ import annotations
@@ -54,7 +58,12 @@ from novaria.common.injection import (
     injection_config_from_dict,
 )
 from novaria.common.io import read_json, sha256_file, write_json
-from novaria.common.tracking import git_sha, log_dataset, setup_mlflow
+from novaria.common.tracking import (
+    git_sha,
+    log_dataset,
+    pipeline_run_tags,
+    setup_mlflow,
+)
 from novaria.models.detectors import ALGORITHMS, SKOPS_TRUSTED_TYPES, build_model
 from novaria.models.metrics import detection_metrics, single_row_latency_ms
 
@@ -86,6 +95,32 @@ def load_training_config(path: str | Path) -> dict[str, Any]:
     if not 0 < config["contamination"] <= 0.5:
         raise ValueError("contamination doit être dans ]0 ; 0,5]")
     return config
+
+
+def select_algorithms(
+    config: dict[str, Any], algorithms: Sequence[str] | None
+) -> dict[str, Any]:
+    """Restreint la configuration aux algorithmes demandés.
+
+    Args:
+        config: configuration d'entraînement complète.
+        algorithms: algorithmes à garder ; ``None`` ou vide garde tous ceux
+            de la configuration.
+
+    Returns:
+        Une copie de la configuration avec seulement ces algorithmes, dans
+        l'ordre de la configuration.
+
+    Raises:
+        ValueError: si un algorithme demandé n'est pas dans la configuration.
+    """
+    if not algorithms:
+        return config
+    missing = set(algorithms) - set(config["algorithms"])
+    if missing:
+        raise ValueError(f"Algorithmes absents de la configuration : {sorted(missing)}")
+    kept = {k: v for k, v in config["algorithms"].items() if k in algorithms}
+    return {**config, "algorithms": kept}
 
 
 def expand_grid(grid: dict[str, list[Any]]) -> list[dict[str, Any]]:
@@ -414,6 +449,7 @@ def run_training(
     report_path: str | Path,
     tracking_uri: str | None = None,
     verbose: bool = True,
+    algorithms: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Entraîne et compare tous les réglages, sauvegarde le meilleur par algorithme.
 
@@ -425,13 +461,15 @@ def run_training(
         tracking_uri: URI MLflow explicite (sinon variable d'environnement,
             sinon suivi local).
         verbose: affiche la progression si True.
+        algorithms: algorithmes à entraîner (défaut : tous ceux de la
+            configuration).
 
     Returns:
         Le résumé de l'entraînement (aussi écrit dans ``comparison.json``).
     """
     input_dir, output_dir = Path(input_dir), Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    config = load_training_config(config_path)
+    config = select_algorithms(load_training_config(config_path), algorithms)
     metadata = read_json(input_dir / "metadata.json")
     seed = config["random_state"]
 
@@ -447,6 +485,7 @@ def run_training(
         "git_sha": sha,
         "dataset_sha256": metadata["dataset_sha256"],
         "train_period": train_period,
+        **pipeline_run_tags(),
     }
     setup_mlflow(tracking_uri)
 
@@ -463,8 +502,9 @@ def run_training(
         "selected": {},
     }
 
+    trained = ",".join(config["algorithms"])
     with mlflow.start_run(run_name="training") as parent:
-        mlflow.set_tags({**common_tags, "step": "training"})
+        mlflow.set_tags({**common_tags, "step": "training", "algorithms": trained})
         mlflow.log_params(
             {"contamination": config["contamination"], "random_state": seed}
         )
@@ -540,8 +580,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         argv: arguments à analyser (défaut : ceux du processus).
 
     Returns:
-        Les arguments : dossiers d'entrée et de sortie, configuration, rapport
-        et URI MLflow.
+        Les arguments : dossiers d'entrée et de sortie, configuration, rapport,
+        URI MLflow et algorithmes.
     """
     parser = argparse.ArgumentParser(
         description="Entraînement et comparaison des 3 algorithmes."
@@ -566,6 +606,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help="URI MLflow (défaut : MLFLOW_TRACKING_URI ou local)",
     )
+    parser.add_argument(
+        "--algorithms",
+        nargs="+",
+        default=None,
+        help="algorithmes à entraîner (défaut : tous ceux de la configuration)",
+    )
     return parser.parse_args(argv)
 
 
@@ -577,7 +623,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     """
     args = parse_args(argv)
     summary = run_training(
-        args.input, args.output, args.config, args.report, args.tracking_uri
+        args.input,
+        args.output,
+        args.config,
+        args.report,
+        args.tracking_uri,
+        algorithms=args.algorithms,
     )
     print("\nModèles retenus :")
     for algorithm, best in summary["selected"].items():
