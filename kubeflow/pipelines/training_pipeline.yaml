@@ -1,0 +1,719 @@
+# PIPELINE DEFINITION
+# Name: novaria-training
+# Description: Entraînement des 3 détecteurs d'anomalies (en parallèle), évaluation sur les tests contrôlés et promotion dans le Model Registry MLflow.
+# Inputs:
+#    data_bucket: str [Default: 'novaria-data']
+components:
+  comp-evaluation:
+    executorLabel: exec-evaluation
+    inputDefinitions:
+      artifacts:
+        controlled:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+          description: "jeux de test contr\xF4l\xE9s."
+        isolation_forest:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+          description: "sortie de l'entra\xEEnement Isolation Forest."
+        local_outlier_factor:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+          description: "sortie de l'entra\xEEnement LOF."
+        one_class_svm:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+          description: "sortie de l'entra\xEEnement One-Class SVM."
+        prepared:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+          description: "sortie de la pr\xE9paration (train pour la stabilit\xE9)."
+    outputDefinitions:
+      artifacts:
+        evaluated:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        report:
+          artifactType:
+            schemaTitle: system.Markdown
+            schemaVersion: 0.0.1
+  comp-ingestion:
+    executorLabel: exec-ingestion
+    inputDefinitions:
+      parameters:
+        data_bucket:
+          description: "bucket MinIO des donn\xE9es (CSV sous ``raw/``)."
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        ingested:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-injection:
+    executorLabel: exec-injection
+    inputDefinitions:
+      artifacts:
+        prepared:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+          description: "sortie de la pr\xE9paration (jamais le train)."
+    outputDefinitions:
+      artifacts:
+        controlled:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-preparation:
+    executorLabel: exec-preparation
+    inputDefinitions:
+      artifacts:
+        ingested:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+          description: sortie de l'ingestion.
+      parameters:
+        data_bucket:
+          description: "bucket MinIO o\xF9 publier les jeux pr\xE9par\xE9s (``datasets/``)."
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        checks_log:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        prepared:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        quality:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+  comp-promotion:
+    executorLabel: exec-promotion
+    inputDefinitions:
+      artifacts:
+        controlled:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+          description: "jeux de test contr\xF4l\xE9s (m\xEAmes que l'\xE9valuation)."
+        evaluated:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+          description: "sortie de l'\xE9valuation (mod\xE8le choisi)."
+        prepared:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+          description: "sortie de la pr\xE9paration (\xE9pisodes r\xE9els de pollution)."
+    outputDefinitions:
+      artifacts:
+        decision:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+  comp-training:
+    executorLabel: exec-training
+    inputDefinitions:
+      artifacts:
+        prepared:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+          description: "sortie de la pr\xE9paration."
+      parameters:
+        algorithm:
+          description: algorithme de ``configs/training.yaml``.
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        report:
+          artifactType:
+            schemaTitle: system.Markdown
+            schemaVersion: 0.0.1
+        trained:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+  comp-training-2:
+    executorLabel: exec-training-2
+    inputDefinitions:
+      artifacts:
+        prepared:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+          description: "sortie de la pr\xE9paration."
+      parameters:
+        algorithm:
+          description: algorithme de ``configs/training.yaml``.
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        report:
+          artifactType:
+            schemaTitle: system.Markdown
+            schemaVersion: 0.0.1
+        trained:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+  comp-training-3:
+    executorLabel: exec-training-3
+    inputDefinitions:
+      artifacts:
+        prepared:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+          description: "sortie de la pr\xE9paration."
+      parameters:
+        algorithm:
+          description: algorithme de ``configs/training.yaml``.
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        report:
+          artifactType:
+            schemaTitle: system.Markdown
+            schemaVersion: 0.0.1
+        trained:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-evaluation:
+      container:
+        args:
+        - --controlled
+        - '{{$.inputs.artifacts[''controlled''].path}}'
+        - --prepared
+        - '{{$.inputs.artifacts[''prepared''].path}}'
+        - --models
+        - '{{$.inputs.artifacts[''isolation_forest''].path}}'
+        - '{{$.inputs.artifacts[''local_outlier_factor''].path}}'
+        - '{{$.inputs.artifacts[''one_class_svm''].path}}'
+        - --output
+        - '{{$.outputs.artifacts[''evaluated''].path}}'
+        - --report
+        - '{{$.outputs.artifacts[''report''].path}}'
+        command:
+        - python
+        - -m
+        - novaria.pipeline.evaluation
+        image: novaria/pipeline:0.1.0
+        resources:
+          cpuLimit: 2.0
+          cpuRequest: 0.5
+          memoryLimit: 4.0
+          memoryRequest: 0.512
+          resourceCpuLimit: '2'
+          resourceCpuRequest: 500m
+          resourceMemoryLimit: 4G
+          resourceMemoryRequest: 512M
+    exec-ingestion:
+      container:
+        args:
+        - --source-bucket
+        - '{{$.inputs.parameters[''data_bucket'']}}'
+        - --output
+        - '{{$.outputs.artifacts[''ingested''].path}}'
+        command:
+        - python
+        - -m
+        - novaria.pipeline.ingestion
+        image: novaria/pipeline:0.1.0
+        resources:
+          cpuLimit: 1.0
+          cpuRequest: 0.5
+          memoryLimit: 2.0
+          memoryRequest: 0.512
+          resourceCpuLimit: '1'
+          resourceCpuRequest: 500m
+          resourceMemoryLimit: 2G
+          resourceMemoryRequest: 512M
+    exec-injection:
+      container:
+        args:
+        - --input
+        - '{{$.inputs.artifacts[''prepared''].path}}'
+        - --output
+        - '{{$.outputs.artifacts[''controlled''].path}}'
+        command:
+        - python
+        - -m
+        - novaria.pipeline.injection
+        image: novaria/pipeline:0.1.0
+        resources:
+          cpuLimit: 1.0
+          cpuRequest: 0.5
+          memoryLimit: 2.0
+          memoryRequest: 0.512
+          resourceCpuLimit: '1'
+          resourceCpuRequest: 500m
+          resourceMemoryLimit: 2G
+          resourceMemoryRequest: 512M
+    exec-preparation:
+      container:
+        args:
+        - --input
+        - '{{$.inputs.artifacts[''ingested''].path}}'
+        - --output
+        - '{{$.outputs.artifacts[''prepared''].path}}'
+        - --report
+        - '{{$.outputs.artifacts[''quality''].path}}'
+        - --log
+        - '{{$.outputs.artifacts[''checks_log''].path}}'
+        - --publish-bucket
+        - '{{$.inputs.parameters[''data_bucket'']}}'
+        command:
+        - python
+        - -m
+        - novaria.pipeline.preparation
+        image: novaria/pipeline:0.1.0
+        resources:
+          cpuLimit: 1.0
+          cpuRequest: 0.5
+          memoryLimit: 3.0
+          memoryRequest: 0.512
+          resourceCpuLimit: '1'
+          resourceCpuRequest: 500m
+          resourceMemoryLimit: 3G
+          resourceMemoryRequest: 512M
+    exec-promotion:
+      container:
+        args:
+        - --models
+        - '{{$.inputs.artifacts[''evaluated''].path}}'
+        - --controlled
+        - '{{$.inputs.artifacts[''controlled''].path}}'
+        - --prepared
+        - '{{$.inputs.artifacts[''prepared''].path}}'
+        - --output
+        - '{{$.outputs.artifacts[''decision''].path}}'
+        command:
+        - python
+        - -m
+        - novaria.pipeline.promotion
+        image: novaria/pipeline:0.1.0
+        resources:
+          cpuLimit: 1.0
+          cpuRequest: 0.5
+          memoryLimit: 3.0
+          memoryRequest: 0.512
+          resourceCpuLimit: '1'
+          resourceCpuRequest: 500m
+          resourceMemoryLimit: 3G
+          resourceMemoryRequest: 512M
+    exec-training:
+      container:
+        args:
+        - --input
+        - '{{$.inputs.artifacts[''prepared''].path}}'
+        - --output
+        - '{{$.outputs.artifacts[''trained''].path}}'
+        - --report
+        - '{{$.outputs.artifacts[''report''].path}}'
+        - --algorithms
+        - '{{$.inputs.parameters[''algorithm'']}}'
+        command:
+        - python
+        - -m
+        - novaria.pipeline.training
+        image: novaria/pipeline:0.1.0
+        resources:
+          cpuLimit: 2.0
+          cpuRequest: 0.5
+          memoryLimit: 3.0
+          memoryRequest: 0.512
+          resourceCpuLimit: '2'
+          resourceCpuRequest: 500m
+          resourceMemoryLimit: 3G
+          resourceMemoryRequest: 512M
+    exec-training-2:
+      container:
+        args:
+        - --input
+        - '{{$.inputs.artifacts[''prepared''].path}}'
+        - --output
+        - '{{$.outputs.artifacts[''trained''].path}}'
+        - --report
+        - '{{$.outputs.artifacts[''report''].path}}'
+        - --algorithms
+        - '{{$.inputs.parameters[''algorithm'']}}'
+        command:
+        - python
+        - -m
+        - novaria.pipeline.training
+        image: novaria/pipeline:0.1.0
+        resources:
+          cpuLimit: 2.0
+          cpuRequest: 0.5
+          memoryLimit: 3.0
+          memoryRequest: 0.512
+          resourceCpuLimit: '2'
+          resourceCpuRequest: 500m
+          resourceMemoryLimit: 3G
+          resourceMemoryRequest: 512M
+    exec-training-3:
+      container:
+        args:
+        - --input
+        - '{{$.inputs.artifacts[''prepared''].path}}'
+        - --output
+        - '{{$.outputs.artifacts[''trained''].path}}'
+        - --report
+        - '{{$.outputs.artifacts[''report''].path}}'
+        - --algorithms
+        - '{{$.inputs.parameters[''algorithm'']}}'
+        command:
+        - python
+        - -m
+        - novaria.pipeline.training
+        image: novaria/pipeline:0.1.0
+        resources:
+          cpuLimit: 2.0
+          cpuRequest: 0.5
+          memoryLimit: 3.0
+          memoryRequest: 0.512
+          resourceCpuLimit: '2'
+          resourceCpuRequest: 500m
+          resourceMemoryLimit: 3G
+          resourceMemoryRequest: 512M
+pipelineInfo:
+  description: "Entra\xEEnement des 3 d\xE9tecteurs d'anomalies (en parall\xE8le),\
+    \ \xE9valuation sur les tests contr\xF4l\xE9s et promotion dans le Model Registry\
+    \ MLflow."
+  name: novaria-training
+root:
+  dag:
+    tasks:
+      evaluation:
+        cachingOptions: {}
+        componentRef:
+          name: comp-evaluation
+        dependentTasks:
+        - injection
+        - preparation
+        - training
+        - training-2
+        - training-3
+        inputs:
+          artifacts:
+            controlled:
+              taskOutputArtifact:
+                outputArtifactKey: controlled
+                producerTask: injection
+            isolation_forest:
+              taskOutputArtifact:
+                outputArtifactKey: trained
+                producerTask: training
+            local_outlier_factor:
+              taskOutputArtifact:
+                outputArtifactKey: trained
+                producerTask: training-2
+            one_class_svm:
+              taskOutputArtifact:
+                outputArtifactKey: trained
+                producerTask: training-3
+            prepared:
+              taskOutputArtifact:
+                outputArtifactKey: prepared
+                producerTask: preparation
+        taskInfo:
+          name: 4b. evaluation
+      ingestion:
+        cachingOptions: {}
+        componentRef:
+          name: comp-ingestion
+        inputs:
+          parameters:
+            data_bucket:
+              componentInputParameter: data_bucket
+        taskInfo:
+          name: 1. ingestion
+      injection:
+        cachingOptions: {}
+        componentRef:
+          name: comp-injection
+        dependentTasks:
+        - preparation
+        inputs:
+          artifacts:
+            prepared:
+              taskOutputArtifact:
+                outputArtifactKey: prepared
+                producerTask: preparation
+        taskInfo:
+          name: "4a. injection (tests contr\xF4l\xE9s)"
+      preparation:
+        cachingOptions: {}
+        componentRef:
+          name: comp-preparation
+        dependentTasks:
+        - ingestion
+        inputs:
+          artifacts:
+            ingested:
+              taskOutputArtifact:
+                outputArtifactKey: ingested
+                producerTask: ingestion
+          parameters:
+            data_bucket:
+              componentInputParameter: data_bucket
+        taskInfo:
+          name: 2. preparation
+      promotion:
+        cachingOptions: {}
+        componentRef:
+          name: comp-promotion
+        dependentTasks:
+        - evaluation
+        - injection
+        - preparation
+        inputs:
+          artifacts:
+            controlled:
+              taskOutputArtifact:
+                outputArtifactKey: controlled
+                producerTask: injection
+            evaluated:
+              taskOutputArtifact:
+                outputArtifactKey: evaluated
+                producerTask: evaluation
+            prepared:
+              taskOutputArtifact:
+                outputArtifactKey: prepared
+                producerTask: preparation
+        taskInfo:
+          name: 5. promotion
+      training:
+        cachingOptions: {}
+        componentRef:
+          name: comp-training
+        dependentTasks:
+        - preparation
+        inputs:
+          artifacts:
+            prepared:
+              taskOutputArtifact:
+                outputArtifactKey: prepared
+                producerTask: preparation
+          parameters:
+            algorithm:
+              runtimeValue:
+                constant: isolation_forest
+        taskInfo:
+          name: "3. training \xB7 Isolation Forest"
+      training-2:
+        cachingOptions: {}
+        componentRef:
+          name: comp-training-2
+        dependentTasks:
+        - preparation
+        inputs:
+          artifacts:
+            prepared:
+              taskOutputArtifact:
+                outputArtifactKey: prepared
+                producerTask: preparation
+          parameters:
+            algorithm:
+              runtimeValue:
+                constant: local_outlier_factor
+        taskInfo:
+          name: "3. training \xB7 Local Outlier Factor"
+      training-3:
+        cachingOptions: {}
+        componentRef:
+          name: comp-training-3
+        dependentTasks:
+        - preparation
+        inputs:
+          artifacts:
+            prepared:
+              taskOutputArtifact:
+                outputArtifactKey: prepared
+                producerTask: preparation
+          parameters:
+            algorithm:
+              runtimeValue:
+                constant: one_class_svm
+        taskInfo:
+          name: "3. training \xB7 One-Class SVM"
+  inputDefinitions:
+    parameters:
+      data_bucket:
+        defaultValue: novaria-data
+        description: "bucket MinIO des donn\xE9es (CSV bruts et jeux publi\xE9s)."
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.18.0
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-evaluation:
+          configMapAsEnv:
+          - configMapName: novaria-pipeline-config
+            configMapNameParameter:
+              runtimeValue:
+                constant: novaria-pipeline-config
+            keyToEnv:
+            - configMapKey: MLFLOW_TRACKING_URI
+              envVar: MLFLOW_TRACKING_URI
+            - configMapKey: MINIO_ENDPOINT
+              envVar: MINIO_ENDPOINT
+            optional: false
+          fieldPathAsEnv:
+          - fieldPath: metadata.labels['pipeline/runid']
+            name: KFP_RUN_ID
+          imagePullPolicy: IfNotPresent
+        exec-ingestion:
+          configMapAsEnv:
+          - configMapName: novaria-pipeline-config
+            configMapNameParameter:
+              runtimeValue:
+                constant: novaria-pipeline-config
+            keyToEnv:
+            - configMapKey: MLFLOW_TRACKING_URI
+              envVar: MLFLOW_TRACKING_URI
+            - configMapKey: MINIO_ENDPOINT
+              envVar: MINIO_ENDPOINT
+            optional: false
+          fieldPathAsEnv:
+          - fieldPath: metadata.labels['pipeline/runid']
+            name: KFP_RUN_ID
+          imagePullPolicy: IfNotPresent
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: MINIO_ACCESS_KEY
+              secretKey: MINIO_ACCESS_KEY
+            - envVar: MINIO_SECRET_KEY
+              secretKey: MINIO_SECRET_KEY
+            optional: false
+            secretName: novaria-minio-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: novaria-minio-pipeline
+        exec-injection:
+          configMapAsEnv:
+          - configMapName: novaria-pipeline-config
+            configMapNameParameter:
+              runtimeValue:
+                constant: novaria-pipeline-config
+            keyToEnv:
+            - configMapKey: MLFLOW_TRACKING_URI
+              envVar: MLFLOW_TRACKING_URI
+            - configMapKey: MINIO_ENDPOINT
+              envVar: MINIO_ENDPOINT
+            optional: false
+          fieldPathAsEnv:
+          - fieldPath: metadata.labels['pipeline/runid']
+            name: KFP_RUN_ID
+          imagePullPolicy: IfNotPresent
+        exec-preparation:
+          configMapAsEnv:
+          - configMapName: novaria-pipeline-config
+            configMapNameParameter:
+              runtimeValue:
+                constant: novaria-pipeline-config
+            keyToEnv:
+            - configMapKey: MLFLOW_TRACKING_URI
+              envVar: MLFLOW_TRACKING_URI
+            - configMapKey: MINIO_ENDPOINT
+              envVar: MINIO_ENDPOINT
+            optional: false
+          fieldPathAsEnv:
+          - fieldPath: metadata.labels['pipeline/runid']
+            name: KFP_RUN_ID
+          imagePullPolicy: IfNotPresent
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: MINIO_ACCESS_KEY
+              secretKey: MINIO_ACCESS_KEY
+            - envVar: MINIO_SECRET_KEY
+              secretKey: MINIO_SECRET_KEY
+            optional: false
+            secretName: novaria-minio-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: novaria-minio-pipeline
+        exec-promotion:
+          configMapAsEnv:
+          - configMapName: novaria-pipeline-config
+            configMapNameParameter:
+              runtimeValue:
+                constant: novaria-pipeline-config
+            keyToEnv:
+            - configMapKey: MLFLOW_TRACKING_URI
+              envVar: MLFLOW_TRACKING_URI
+            - configMapKey: MINIO_ENDPOINT
+              envVar: MINIO_ENDPOINT
+            optional: false
+          fieldPathAsEnv:
+          - fieldPath: metadata.labels['pipeline/runid']
+            name: KFP_RUN_ID
+          imagePullPolicy: IfNotPresent
+        exec-training:
+          configMapAsEnv:
+          - configMapName: novaria-pipeline-config
+            configMapNameParameter:
+              runtimeValue:
+                constant: novaria-pipeline-config
+            keyToEnv:
+            - configMapKey: MLFLOW_TRACKING_URI
+              envVar: MLFLOW_TRACKING_URI
+            - configMapKey: MINIO_ENDPOINT
+              envVar: MINIO_ENDPOINT
+            optional: false
+          fieldPathAsEnv:
+          - fieldPath: metadata.labels['pipeline/runid']
+            name: KFP_RUN_ID
+          imagePullPolicy: IfNotPresent
+        exec-training-2:
+          configMapAsEnv:
+          - configMapName: novaria-pipeline-config
+            configMapNameParameter:
+              runtimeValue:
+                constant: novaria-pipeline-config
+            keyToEnv:
+            - configMapKey: MLFLOW_TRACKING_URI
+              envVar: MLFLOW_TRACKING_URI
+            - configMapKey: MINIO_ENDPOINT
+              envVar: MINIO_ENDPOINT
+            optional: false
+          fieldPathAsEnv:
+          - fieldPath: metadata.labels['pipeline/runid']
+            name: KFP_RUN_ID
+          imagePullPolicy: IfNotPresent
+        exec-training-3:
+          configMapAsEnv:
+          - configMapName: novaria-pipeline-config
+            configMapNameParameter:
+              runtimeValue:
+                constant: novaria-pipeline-config
+            keyToEnv:
+            - configMapKey: MLFLOW_TRACKING_URI
+              envVar: MLFLOW_TRACKING_URI
+            - configMapKey: MINIO_ENDPOINT
+              envVar: MINIO_ENDPOINT
+            optional: false
+          fieldPathAsEnv:
+          - fieldPath: metadata.labels['pipeline/runid']
+            name: KFP_RUN_ID
+          imagePullPolicy: IfNotPresent

@@ -16,6 +16,7 @@ from novaria.pipeline.training import (
     load_training_config,
     run_training,
     sample_training_rows,
+    select_algorithms,
     select_best,
     serialized_model_path,
 )
@@ -84,6 +85,20 @@ def test_load_training_config_rejects_errors(tmp_path) -> None:
         load_training_config(
             _write_config(tmp_path, SMALL_CONFIG | {"contamination": 0.8})
         )
+
+
+def test_select_algorithms() -> None:
+    """Vérifie la restriction aux algorithmes demandés (une étape Kubeflow par algorithme).
+
+    L'ordre de la configuration est conservé ; un algorithme absent est refusé.
+    """
+    assert select_algorithms(SMALL_CONFIG, None) is SMALL_CONFIG
+    kept = select_algorithms(SMALL_CONFIG, ["one_class_svm", "isolation_forest"])
+    assert list(kept["algorithms"]) == ["isolation_forest", "one_class_svm"]
+    assert kept["contamination"] == SMALL_CONFIG["contamination"]
+    assert len(SMALL_CONFIG["algorithms"]) == 3
+    with pytest.raises(ValueError, match="absents"):
+        select_algorithms(SMALL_CONFIG, ["kmeans"])
 
 
 def test_sample_training_rows_keeps_station_balance() -> None:

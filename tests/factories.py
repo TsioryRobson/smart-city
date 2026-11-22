@@ -149,3 +149,74 @@ def contract_message(**overrides: object) -> dict[str, object]:
     }
     message.update(overrides)
     return message
+
+
+class FakeMinio:
+    """Client MinIO en mémoire : mêmes méthodes que ``minio.Minio`` utilisées par le projet.
+
+    Attributes:
+        objects: contenu des objets, par ``(bucket, nom)``.
+    """
+
+    class _Object:
+        """Objet listé, avec les attributs lus par ``novaria.common.storage``.
+
+        Attributes:
+            object_name: nom complet de l'objet.
+            is_dir: True pour un préfixe (sous-dossier).
+        """
+
+        def __init__(self, object_name: str, is_dir: bool = False) -> None:
+            """Crée l'objet listé.
+
+            Args:
+                object_name: nom complet de l'objet.
+                is_dir: True pour un préfixe (sous-dossier).
+            """
+            self.object_name = object_name
+            self.is_dir = is_dir
+
+    def __init__(self) -> None:
+        """Crée un stockage vide."""
+        self.objects: dict[tuple[str, str], bytes] = {}
+
+    def list_objects(self, bucket: str, prefix: str = "") -> list[_Object]:
+        """Liste les objets directement sous un préfixe, comme MinIO (non récursif).
+
+        Args:
+            bucket: bucket listé.
+            prefix: préfixe des objets.
+
+        Returns:
+            Les objets du préfixe, puis ses sous-dossiers.
+        """
+        files, dirs = [], set()
+        for b, name in sorted(self.objects):
+            if b != bucket or not name.startswith(prefix):
+                continue
+            rest = name[len(prefix) :]
+            if "/" in rest:
+                dirs.add(prefix + rest.split("/")[0] + "/")
+            else:
+                files.append(self._Object(name))
+        return files + [self._Object(d, is_dir=True) for d in sorted(dirs)]
+
+    def fget_object(self, bucket: str, name: str, path: str) -> None:
+        """Copie un objet dans un fichier local.
+
+        Args:
+            bucket: bucket source.
+            name: nom de l'objet.
+            path: fichier local de destination.
+        """
+        Path(path).write_bytes(self.objects[(bucket, name)])
+
+    def fput_object(self, bucket: str, name: str, path: str) -> None:
+        """Copie un fichier local dans un objet.
+
+        Args:
+            bucket: bucket de destination.
+            name: nom de l'objet.
+            path: fichier local source.
+        """
+        self.objects[(bucket, name)] = Path(path).read_bytes()

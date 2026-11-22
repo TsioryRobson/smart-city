@@ -14,11 +14,16 @@ Le meilleur modèle est choisi par la règle de ``configs/evaluation.yaml`` et
 
 Exécution :
 ``python -m novaria.pipeline.evaluation --controlled data/controlled --models models``
+
+Dans Kubeflow, les 3 algorithmes sont entraînés dans des étapes séparées :
+``--models`` reçoit alors leurs 3 dossiers, fusionnés dans ``--output``
+(modèles + ``comparison.json`` commun), qui sert ensuite à ``promotion.py``.
 """
 
 from __future__ import annotations
 
 import argparse
+import shutil
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -48,7 +53,12 @@ from novaria.common.config import (
 )
 from novaria.common.injection import SPIKE
 from novaria.common.io import read_json, sha256_file, write_json
-from novaria.common.tracking import git_sha, log_dataset, setup_mlflow
+from novaria.common.tracking import (
+    git_sha,
+    log_dataset,
+    pipeline_run_tags,
+    setup_mlflow,
+)
 from novaria.models.detectors import build_model
 from novaria.models.metrics import (
     detection_metrics,
@@ -73,6 +83,13 @@ KEY_METRICS = (
     "test_detection_rate_capteur_fige",
     "test_detection_rate_valeur_impossible",
 )
+# Champs qui doivent être identiques dans les sorties d'entraînement fusionnées.
+SHARED_TRAINING_FIELDS = (
+    "dataset_sha256",
+    "train_period",
+    "contamination",
+    "selection_metric",
+)
 
 
 @dataclass(frozen=True)
@@ -94,6 +111,65 @@ class ControlledSet:
 
 
 # --- Chargement --------------------------------------------------------------
+def merge_training_outputs(
+    models_dirs: Sequence[str | Path], output_dir: str | Path
+) -> dict[str, Any]:
+    """Réunit dans un dossier les sorties de plusieurs étapes d'entraînement.
+
+    Chaque dossier contient un ``comparison.json`` et un sous-dossier par
+    algorithme entraîné. Les modèles sont copiés dans ``output_dir`` et un
+    ``comparison.json`` commun y est écrit. Avec un seul dossier, qui est
+    aussi la sortie, rien n'est copié.
+
+    Args:
+        models_dirs: dossiers produits par ``training.py``.
+        output_dir: dossier de la fusion (créé si besoin).
+
+    Returns:
+        La comparaison fusionnée : ``selected`` et ``runs`` de tous les
+        algorithmes, ``parent_run_ids`` des runs MLflow d'entraînement.
+
+    Raises:
+        ValueError: si aucun dossier n'est donné, si un algorithme apparaît
+            deux fois, ou si les entraînements n'ont pas utilisé les mêmes
+            données ou le même protocole (``SHARED_TRAINING_FIELDS``).
+    """
+    dirs = [Path(d) for d in models_dirs]
+    output_dir = Path(output_dir)
+    if not dirs:
+        raise ValueError("Aucun dossier d'entraînement à évaluer")
+    if len(dirs) == 1 and dirs[0].resolve() == output_dir.resolve():
+        return read_json(output_dir / COMPARISON_FILE)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    comparisons = [read_json(d / COMPARISON_FILE) for d in dirs]
+    reference = comparisons[0]
+    merged: dict[str, Any] = {
+        **reference,
+        "trained_at": max(c["trained_at"] for c in comparisons),
+        "parent_run_ids": [c["parent_run_id"] for c in comparisons],
+        "runs": {},
+        "selected": {},
+    }
+    for source, comparison in zip(dirs, comparisons, strict=True):
+        for field in SHARED_TRAINING_FIELDS:
+            if comparison.get(field) != reference.get(field):
+                raise ValueError(
+                    f"Entraînements incompatibles ({field}) : {source} et {dirs[0]}"
+                )
+        for algorithm, selected in comparison["selected"].items():
+            if algorithm in merged["selected"]:
+                raise ValueError(f"{algorithm} est entraîné dans plusieurs dossiers")
+            target = output_dir / algorithm
+            if source.resolve() != output_dir.resolve():
+                shutil.rmtree(target, ignore_errors=True)
+                shutil.copytree(source / algorithm, target)
+            merged["selected"][algorithm] = {**selected, "model_path": str(target)}
+            merged["runs"][algorithm] = comparison["runs"][algorithm]
+    write_json(merged, output_dir / COMPARISON_FILE)
+    return merged
+
+
 def load_selected_model(
     models_dir: Path, algorithm: str, expected_sha256: str
 ) -> Pipeline:
@@ -611,35 +687,41 @@ def evaluate_algorithm(
 def run_evaluation(
     controlled_dir: str | Path,
     prepared_dir: str | Path,
-    models_dir: str | Path,
+    models_dir: str | Path | Sequence[str | Path],
     config_path: str | Path,
     report_path: str | Path,
     tracking_uri: str | None = None,
     verbose: bool = True,
+    output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Évalue les 3 modèles retenus, choisit le meilleur et écrit les résultats.
 
     Args:
         controlled_dir: dossier des jeux contrôlés (injection).
         prepared_dir: dossier de la préparation (train pour les réentraînements).
-        models_dir: dossier des modèles et de ``comparison.json``.
+        models_dir: dossier des modèles et de ``comparison.json``, ou liste
+            de dossiers d'entraînement à fusionner (un par étape Kubeflow).
         config_path: configuration d'évaluation YAML.
         report_path: chemin du rapport Markdown.
         tracking_uri: URI MLflow explicite (sinon variable d'environnement,
             sinon suivi local).
         verbose: affiche la progression si True.
+        output_dir: dossier des modèles fusionnés, de ``evaluation.json`` et
+            de ``selection.json`` (défaut : le premier dossier de modèles).
 
     Returns:
         Le résumé de l'évaluation (aussi écrit dans ``evaluation.json``).
     """
-    controlled_dir, models_dir, report_path = (
-        Path(controlled_dir),
-        Path(models_dir),
-        Path(report_path),
+    dirs = (
+        [Path(models_dir)]
+        if isinstance(models_dir, str | Path)
+        else [Path(d) for d in models_dir]
     )
+    controlled_dir, report_path = Path(controlled_dir), Path(report_path)
+    models_dir = Path(output_dir) if output_dir is not None else dirs[0]
     with Path(config_path).open(encoding="utf-8") as f:
         config = yaml.safe_load(f)
-    comparison = read_json(models_dir / COMPARISON_FILE)
+    comparison = merge_training_outputs(dirs, models_dir)
     train = read_prepared(Path(prepared_dir) / "train.parquet")
     manifest, sets = load_controlled_sets(
         controlled_dir, train[POLLUTANTS].quantile(0.99)
@@ -702,6 +784,7 @@ def run_evaluation(
                 "dataset_sha256": summary["dataset_sha256"],
                 "selected_algorithm": chosen,
                 "selected_training_run_id": best["run_id"],
+                **pipeline_run_tags(),
             }
         )
         mlflow.log_params(
@@ -721,6 +804,7 @@ def run_evaluation(
                         "model_uri": comparison["selected"][algorithm]["model_uri"],
                         "model_sha256": result["model_sha256"],
                         "selected": str(algorithm == chosen).lower(),
+                        **pipeline_run_tags(),
                     }
                 )
                 mlflow.log_params(
@@ -760,8 +844,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         argv: arguments à analyser (défaut : ceux du processus).
 
     Returns:
-        Les arguments : dossiers des jeux contrôlés, de la préparation et des
-        modèles, configuration, rapport et URI MLflow.
+        Les arguments : dossiers des jeux contrôlés, de la préparation, des
+        modèles et de sortie, configuration, rapport et URI MLflow.
     """
     parser = argparse.ArgumentParser(
         description="Évaluation et sélection du meilleur modèle."
@@ -778,8 +862,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--models",
         type=Path,
-        default=MODELS_DIR,
-        help="modèles retenus à l'entraînement",
+        nargs="+",
+        default=[MODELS_DIR],
+        help="dossier(s) des modèles retenus à l'entraînement",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="dossier des modèles fusionnés et de selection.json "
+        "(défaut : le premier dossier de --models)",
     )
     parser.add_argument(
         "--config", type=Path, default=EVALUATION_CONFIG_PATH, help="configuration YAML"
@@ -812,6 +904,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         args.config,
         args.report,
         args.tracking_uri,
+        output_dir=args.output,
     )
     for name, r in summary["results"].items():
         inj = r["injection"]

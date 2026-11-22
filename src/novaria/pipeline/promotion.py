@@ -39,7 +39,7 @@ from novaria.common.config import (
     PREPARED_DATA_DIR,
 )
 from novaria.common.io import read_json, sha256_file, write_json
-from novaria.common.tracking import git_sha, setup_mlflow
+from novaria.common.tracking import git_sha, pipeline_run_tags, setup_mlflow
 from novaria.models.metrics import single_row_latency_ms
 from novaria.pipeline.evaluation import (
     SELECTION_FILE,
@@ -257,6 +257,7 @@ def run_promotion(
     algorithm: str | None = None,
     force: bool = False,
     tracking_uri: str | None = None,
+    output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Enregistre le candidat, décide de sa promotion et met à jour les alias.
 
@@ -269,11 +270,14 @@ def run_promotion(
         algorithm: algorithme candidat (défaut : celui de ``selection.json``).
         force: promeut même si la règle refuse la version (tracé).
         tracking_uri: URI MLflow explicite.
+        output_dir: dossier de ``promotion.json`` (défaut : ``models_dir``).
 
     Returns:
         Le compte rendu de la promotion (aussi écrit dans ``promotion.json``).
     """
     models_dir = Path(models_dir)
+    output_dir = Path(output_dir) if output_dir is not None else models_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
     with Path(config_path).open(encoding="utf-8") as f:
         config = yaml.safe_load(f)
     tolerance = config["promotion"]["detection_tolerance"]
@@ -346,6 +350,7 @@ def run_promotion(
                 "model_version": str(version.version),
                 "decision": decision,
                 "forced": str(report["forced"]).lower(),
+                **pipeline_run_tags(),
             }
         )
         mlflow.log_params(
@@ -356,8 +361,8 @@ def run_promotion(
             mlflow.log_metrics(
                 {f"champion_{k}": v for k, v in champion_metrics.items()}
             )
-        write_json(report, models_dir / PROMOTION_FILE)
-        mlflow.log_artifact(str(models_dir / PROMOTION_FILE))
+        write_json(report, output_dir / PROMOTION_FILE)
+        mlflow.log_artifact(str(output_dir / PROMOTION_FILE))
     return report
 
 
@@ -369,7 +374,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     Returns:
         Les arguments : dossiers des modèles, des jeux contrôlés et de la
-        préparation, configuration, algorithme, ``force`` et URI MLflow.
+        préparation, configuration, algorithme, dossier de sortie, ``force``
+        et URI MLflow.
     """
     parser = argparse.ArgumentParser(
         description="Enregistrement et promotion dans le Model Registry."
@@ -391,6 +397,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--algorithm", default=None, help="défaut : algorithme de selection.json"
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="dossier de promotion.json (défaut : --models)",
     )
     parser.add_argument(
         "--force", action="store_true", help="promouvoir malgré un refus (tracé)"
@@ -418,6 +430,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         args.algorithm,
         args.force,
         args.tracking_uri,
+        output_dir=args.output,
     )
     print(
         f"{report['model_name']} v{report['version']} ({report['algorithm']}) : {report['decision']}"

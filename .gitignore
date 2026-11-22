@@ -37,3 +37,6 @@ kubeflow/upstream/
 # Paquets Python téléchargés pour construire l image de validation Kubeflow
 kubeflow/check/wheels/*
 !kubeflow/check/wheels/.gitkeep
+# Paquets Python téléchargés pour construire l image des composants du pipeline
+kubeflow/components/wheels/*
+!kubeflow/components/wheels/.gitkeep

@@ -6,8 +6,8 @@ import pandas as pd
 from novaria.common.config import MODEL_FEATURES, STATION_COLUMN
 from novaria.common.io import read_json, sha256_file
 from novaria.pipeline.ingestion import ingest
-from novaria.pipeline.preparation import METADATA_FILE, main, prepare
-from tests.factories import write_raw_csvs
+from novaria.pipeline.preparation import METADATA_FILE, main, prepare, publish_prepared
+from tests.factories import FakeMinio, write_raw_csvs
 
 BOUNDS = {
     "train_start": pd.Timestamp("2020-01-02"),
@@ -127,3 +127,29 @@ def test_cli_accepts_split_bounds(tmp_path) -> None:
     test = pd.read_parquet(out / "test.parquet")
     assert test["timestamp"].min() == pd.Timestamp("2020-01-06")
     assert np.isfinite(test["hour_sin"]).all()
+
+
+def test_publish_prepared_versions_by_hash(tmp_path, monkeypatch) -> None:
+    """Vérifie que les jeux préparés sont publiés sous un dossier nommé par leur empreinte.
+
+    Args:
+        tmp_path: dossier temporaire fourni par pytest.
+        monkeypatch: outil pytest pour remplacer le client MinIO.
+    """
+    (tmp_path / "train.parquet").write_bytes(b"t")
+    (tmp_path / METADATA_FILE).write_text("{}")
+    client = FakeMinio()
+    monkeypatch.setattr("novaria.common.storage.client_from_env", lambda: client)
+
+    location = publish_prepared(
+        tmp_path,
+        {"dataset_sha256": "0123456789abcdef" + "f" * 48},
+        "data",
+        "datasets/prepared",
+    )
+
+    assert location == "minio://data/datasets/prepared/0123456789abcdef/"
+    assert {name for _, name in client.objects} == {
+        "datasets/prepared/0123456789abcdef/train.parquet",
+        f"datasets/prepared/0123456789abcdef/{METADATA_FILE}",
+    }

@@ -11,7 +11,7 @@ Le contexte complet (règles ML, contrats d'API et Kafka, architecture, sprints)
 ## Stack
 
 Python 3.12, pandas, scikit-learn, Jupyter, MLflow, FastAPI, Kafka, Flink (PyFlink), NiFi, MongoDB,
-MinIO, PostgreSQL, Docker Compose. Kubernetes et Kubeflow Pipelines au sprint 3.
+MinIO, PostgreSQL, Docker Compose. Kubernetes et Kubeflow Pipelines (avancés au sprint 2).
 
 ## Structure
 
@@ -35,7 +35,7 @@ logs/                # journal de vérification des données, non versionné
 
 Ce que Git ne contient pas, volontairement : `.env` (secrets), `data/raw/` (CSV du dataset), les images Docker
 (construites en local, sans registre) et les paquets téléchargés (`infra/mlflow/wheels/`, `kubeflow/check/wheels/`,
-facultatifs). Dans l'ordre :
+`kubeflow/components/wheels/`, facultatifs). Dans l'ordre :
 
 1. **Prérequis** : WSL Ubuntu, Python 3.12, Docker Desktop avec Kubernetes activé en mode **kubeadm**
    (Settings → Kubernetes ; contexte `docker-desktop`).
@@ -109,7 +109,7 @@ python -m novaria.pipeline.promotion     # -> Model Registry : version, @champio
 ```
 
 Chaque script lit et écrit des fichiers et prend sa configuration en arguments (`--help`) :
-il deviendra un composant Kubeflow au sprint 3.
+c'est un composant du pipeline Kubeflow (voir plus bas).
 
 **1. Ingestion** : lit les 12 CSV, vérifie leurs colonnes, et écrit sans modifier aucune valeur :
 - `measurements.parquet` : toutes les stations, avec la colonne `source_file` (provenance) ;
@@ -217,6 +217,23 @@ kubectl -n kubeflow port-forward svc/ml-pipeline-ui 8080:80     # http://localho
 Les pods n'accèdent qu'à MLflow et au bucket `novaria-data` de MinIO (compte dédié, écriture seulement sous
 `datasets/`) ; PostgreSQL n'est plus publié. Le SDK `kfp` est dans un venv séparé (`.venv-kfp`,
 `kubeflow/requirements.txt`). Installation, choix et points de sécurité : [docs/kubeflow.md](docs/kubeflow.md).
+
+### Pipeline d'entraînement
+
+Les scripts du pipeline deviennent des étapes Kubeflow ; les 3 entraînements tournent en parallèle :
+
+```
+ingestion -> preparation -> training ×3 (IF, LOF, One-Class SVM) + injection -> evaluation -> promotion
+```
+
+```bash
+./kubeflow/components/build.sh                                  # image novaria/pipeline:0.1.0 (locale)
+.venv-kfp/bin/python kubeflow/pipelines/training_pipeline.py    # compile training_pipeline.yaml
+.venv-kfp/bin/python kubeflow/pipelines/run.py kubeflow/pipelines/training_pipeline.yaml
+```
+
+Le graphe et les rapports s'affichent dans l'interface (expérience `novaria`) ; les runs et la nouvelle version
+du modèle sont dans MLflow (tag `kfp_run_id`). Détails : [docs/kubeflow.md](docs/kubeflow.md#pipeline-dentraînement).
 
 ## Model Registry et promotion
 

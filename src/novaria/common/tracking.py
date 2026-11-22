@@ -22,6 +22,11 @@ from novaria.common.config import (
     PROJECT_ROOT,
 )
 
+# Commit Git donné à la construction de l'image des composants Kubeflow.
+GIT_SHA_ENV = "NOVARIA_GIT_SHA"
+# Identifiant du run Kubeflow, injecté dans chaque étape du pipeline.
+KFP_RUN_ID_ENV = "KFP_RUN_ID"
+
 
 def resolve_tracking_uri(tracking_uri: str | None = None) -> str:
     """Choisit l'URI de suivi MLflow : argument, puis variable d'environnement, puis local.
@@ -93,10 +98,16 @@ def setup_mlflow(
 def git_sha() -> str:
     """Renvoie le commit Git courant, suffixé de ``-dirty`` s'il y a des modifications.
 
+    Dans une image de composant Kubeflow (sans dépôt Git), le commit est
+    donné à la construction de l'image par la variable ``NOVARIA_GIT_SHA``.
+
     Returns:
         Le SHA du commit, ``<sha>-dirty`` si le dépôt contient des
-        modifications non commitées, ou ``unknown`` hors d'un dépôt Git.
+        modifications non commitées, la valeur de ``NOVARIA_GIT_SHA`` si elle
+        est définie, ou ``unknown`` hors d'un dépôt Git.
     """
+    if os.environ.get(GIT_SHA_ENV):
+        return os.environ[GIT_SHA_ENV]
     try:
         sha = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -115,6 +126,20 @@ def git_sha() -> str:
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
     return f"{sha}-dirty" if status else sha
+
+
+def pipeline_run_tags() -> dict[str, str]:
+    """Renvoie les tags qui relient un run MLflow au run Kubeflow qui l'a lancé.
+
+    Kubeflow donne l'identifiant de son run aux étapes par la variable
+    ``KFP_RUN_ID`` (voir ``kubeflow/pipelines/training_pipeline.py``).
+
+    Returns:
+        ``{"kfp_run_id": ...}`` dans une étape Kubeflow, sinon un dictionnaire
+        vide (exécution locale).
+    """
+    run_id = os.environ.get(KFP_RUN_ID_ENV)
+    return {"kfp_run_id": run_id} if run_id else {}
 
 
 def log_dataset(
