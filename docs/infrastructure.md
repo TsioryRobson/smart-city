@@ -4,7 +4,7 @@
 
 | Service | Image | Rôle | Port (machine locale) |
 |---|---|---|---|
-| `postgres` | `postgres:16.10-alpine` (figée par digest) | Métadonnées MLflow : expériences, runs, paramètres, métriques, Model Registry | 127.0.0.1:`POSTGRES_HOST_PORT` (5432 par défaut) |
+| `postgres` | `postgres:16.10-alpine` (figée par digest) | Métadonnées MLflow : expériences, runs, paramètres, métriques, Model Registry | aucun (accès ponctuel : `docker-compose.sql-access.yml`) |
 | `minio` | `cgr.dev/chainguard/minio` (figée par digest) | Stockage S3 des artefacts : modèles, rapports, configurations | 127.0.0.1:9000 (API), 127.0.0.1:9001 (console) |
 | `mlflow` | `novaria/mlflow:3.18.0` (construite depuis `infra/mlflow/`) | Serveur de suivi et Registry ; sert les artefacts par HTTP | 127.0.0.1:5000 |
 
@@ -29,11 +29,12 @@ de code entre le suivi local (SQLite) et le serveur, seule la variable `MLFLOW_T
 | Images figées par digest SHA-256 | Construction reproductible ; une image modifiée en amont ne change pas silencieusement l'infrastructure. |
 | Ports liés à 127.0.0.1 | Services accessibles depuis la machine seulement, pas depuis le réseau. |
 | Conteneurs non-root (MLflow uid 10001, MinIO uid 65532) | Limite l'impact d'une compromission. |
-| `--allowed-hosts` sur le serveur MLflow | Protection contre le *DNS rebinding* (en-têtes Host acceptés : localhost et le nom du service). |
+| `--allowed-hosts` sur le serveur MLflow | Protection contre le *DNS rebinding* (en-têtes Host acceptés : localhost, le nom du service et `host.docker.internal` pour les pods Kubeflow). |
 | Secrets dans `.env` (ignoré par git), modèle `.env.example` | Aucun secret dans le dépôt (CLAUDE.md, section 13). |
 | Limites mémoire (512 Mo, 1 Go pour MLflow) | Cohabiter avec Kafka, Flink et NiFi au sprint 2 sur la même machine. Mesuré : MLflow ≈ 360 Mo, PostgreSQL et MinIO ≈ 65 Mo chacun. |
 | MLflow : 1 processus de travail, `MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false` | Par défaut, MLflow 3.18 lance un gestionnaire de tâches GenAI (≈ 8 processus de 240 Mo, soit 2 Go) inutile ici. Avec la limite mémoire, ces processus mouraient et MLflow arrêtait tout le serveur, qui redémarrait en boucle. |
-| Port PostgreSQL de la machine configurable (`POSTGRES_HOST_PORT`) | Un PostgreSQL installé sur Windows occupe déjà 5432 sur ce poste (`.env` : 5433). Le port publié ne sert qu'aux outils SQL ; MLflow passe par le réseau Docker. |
+| PostgreSQL sans port publié ; `docker-compose.sql-access.yml` pour un outil SQL (port `POSTGRES_HOST_PORT`, 5433 sur ce poste) | Un port publié serait joignable depuis les pods Kubeflow (`host.docker.internal`) ; seul MLflow doit utiliser la base. 5432 est pris par un PostgreSQL installé sur Windows. |
+| Bucket `novaria-data` et compte MinIO `novaria-pipeline` (`infra/minio/setup_pipeline_access.py`) | Données d'entrée du pipeline Kubeflow ; compte limité à ce bucket (voir `docs/kubeflow.md`). |
 | `mlflow==3.18.0` côté serveur | Même version que les scripts (`requirements.lock.txt`). |
 
 ## Construction hors ligne (`infra/mlflow/wheels/`)

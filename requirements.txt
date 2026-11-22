@@ -11,6 +11,7 @@ ipykernel
 
 # MLOps
 mlflow
+minio              # administration du bucket de données (infra/minio)
 
 # API
 fastapi

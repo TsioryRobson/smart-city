@@ -1,0 +1,6 @@
+# Outils Kubeflow (venv séparé .venv-kfp) : compiler et soumettre les pipelines.
+# Séparé du venv du projet : kfp impose protobuf<7, incompatible avec la
+# version utilisée par MLflow dans .venv.
+#   python3 -m venv .venv-kfp && .venv-kfp/bin/pip install -r kubeflow/requirements.txt
+kfp==2.18.0
+kfp-kubernetes==2.18.0

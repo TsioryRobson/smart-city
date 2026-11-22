@@ -81,6 +81,7 @@ Mako==1.4.3
 MarkupSafe==3.0.4
 matplotlib==3.11.2
 matplotlib-inline==0.2.2
+minio==7.2.20
 mistune==3.4.0
 mlflow==3.18.0
 mlflow-skinny==3.18.0
@@ -117,6 +118,7 @@ pyarrow==26.0.1
 pyasn1==0.6.5
 pyasn1_modules==0.4.2
 pycparser==3.12
+pycryptodome==4.5.0
 pydantic==2.14.3
 pydantic_core==2.50.4
 Pygments==2.21.0

@@ -27,10 +27,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-mlflow}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      # Port côté machine configurable : 5432 peut être pris par un PostgreSQL
-      # installé localement. MLflow utilise le réseau Docker (postgres:5432).
-      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    # Aucun port publié : seul MLflow parle à PostgreSQL, par le réseau Docker.
+    # Publier le port le rendrait joignable depuis les pods Kubernetes
+    # (host.docker.internal). Pour un outil SQL ponctuel :
+    #   docker compose -f docker-compose.yml -f docker-compose.sql-access.yml up -d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -81,7 +81,8 @@ services:
       # manque de mémoire arrête tout le serveur.
       MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
       # En-têtes Host acceptés (protection contre le DNS rebinding).
-      MLFLOW_ALLOWED_HOSTS: localhost,localhost:5000,127.0.0.1,127.0.0.1:5000,mlflow,mlflow:5000
+      # host.docker.internal : appels des pods Kubeflow (Kubernetes de Docker Desktop).
+      MLFLOW_ALLOWED_HOSTS: localhost,localhost:5000,127.0.0.1,127.0.0.1:5000,mlflow,mlflow:5000,host.docker.internal,host.docker.internal:5000
     ports:
       - "127.0.0.1:5000:5000"
     healthcheck:

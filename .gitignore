@@ -1,5 +1,6 @@
 # Python
 .venv/
+.venv-kfp/
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -30,3 +31,9 @@ logs/
 # Paquets Python téléchargés pour construire l image MLflow
 infra/mlflow/wheels/*
 !infra/mlflow/wheels/.gitkeep
+
+# Manifestes officiels de Kubeflow (clone temporaire de kubeflow/render-manifests.sh)
+kubeflow/upstream/
+# Paquets Python téléchargés pour construire l image de validation Kubeflow
+kubeflow/check/wheels/*
+!kubeflow/check/wheels/.gitkeep

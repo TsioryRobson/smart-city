@@ -1,0 +1,26 @@
+# Kubeflow Pipelines 2.18.0 standalone (platform-agnostic), adapté au POC.
+# Manifestes officiels rendus et figés dans upstream-2.18.0/ (voir ../render-manifests.sh) :
+# l'installation ne dépend ni du réseau ni de GitHub, et les manifestes sont relisibles.
+#
+# Différence avec l'installation officielle : le Deployment du serveur de
+# visualisation (kfp-visualization-server, image de 881 Mo) est retiré. Il ne
+# sert qu'aux visualisations de Kubeflow v1, inutilisées par l'interface v2 et
+# notre pipeline. Son Service est gardé (sans pod) : le serveur d'API refuse de
+# démarrer sans la variable ML_PIPELINE_VISUALIZATIONSERVER_SERVICE_HOST que
+# Kubernetes crée pour ce Service.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - upstream-2.18.0/platform-agnostic.yaml
+
+patches:
+  - target:
+      kind: Deployment
+      name: ml-pipeline-visualizationserver
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ml-pipeline-visualizationserver
