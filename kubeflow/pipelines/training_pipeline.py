@@ -3,15 +3,20 @@
 Graphe (les 3 entraînements et l'injection tournent en parallèle) :
 
     ingestion -> preparation -+-> training (Isolation Forest) -+
-                              +-> training (LOF)               +-> evaluation -> promotion
+                              +-> training (LOF)               +-> evaluation -> promotion -> decision
                               +-> training (One-Class SVM)     |
                               +-> injection (tests contrôlés) -+
 
 Chaque étape lance un script dans l'image ``novaria/pipeline`` (construite en
-local par ``kubeflow/components/build.sh``). Les dossiers échangés entre
-étapes sont des artefacts Kubeflow (stockage interne du cluster) ; les CSV
-bruts sont lus dans MinIO (``novaria-data/raw/``) et les jeux préparés y sont
-publiés (``datasets/prepared/<empreinte>/``). Runs et modèles vont dans
+local par ``kubeflow/components/build.sh``), par le lanceur
+``novaria.pipeline.remote`` : les dossiers échangés entre étapes passent par
+MinIO (``novaria-data/datasets/runs/<run Kubeflow>/``), pas par des artefacts
+Kubeflow. Le graphe ne montre donc que les étapes, plus un seul artefact :
+``decision`` (``promotion.json``). L'ordre des étapes est donné par
+``.after()``.
+
+Les CSV bruts sont lus dans ``novaria-data/raw/`` et les jeux préparés publiés
+sous ``datasets/prepared/<empreinte>/``. Runs, rapports et modèles vont dans
 MLflow ; la promotion met à jour ``@champion`` / ``@previous`` selon la règle
 de CLAUDE.md (section 7).
 
@@ -30,203 +35,228 @@ ALGORITHMS = {
     "local_outlier_factor": "Local Outlier Factor",
     "one_class_svm": "One-Class SVM",
 }
+# Lanceur commun : télécharge les entrées depuis MinIO, lance le script, envoie
+# les sorties. Le lanceur Kubeflow ignore l'ENTRYPOINT : commande explicite.
+REMOTE = ["python", "-m", "novaria.pipeline.remote"]
 OUTPUT = "kubeflow/pipelines/training_pipeline.yaml"
 
 
-def script(module: str) -> list[str]:
-    """Construit la commande qui lance un script du pipeline Novaria.
-
-    Le lanceur de Kubeflow ignore l'``ENTRYPOINT`` de l'image : la commande est
-    toujours donnée explicitement.
+def remote_args(
+    bucket: str,
+    step: str,
+    arguments: list,
+    inputs: tuple[str, ...] = (),
+    outputs: tuple[str, ...] = (),
+    group: str | None = None,
+) -> list:
+    """Construit les arguments du lanceur ``novaria.pipeline.remote``.
 
     Args:
-        module: nom du script dans ``novaria.pipeline`` (ex. ``training``).
+        bucket: bucket MinIO des données (paramètre du pipeline).
+        step: script de ``novaria.pipeline``.
+        arguments: arguments du script ; ``{nom}`` désigne un dossier.
+        inputs: dossiers produits par les étapes précédentes.
+        outputs: dossiers produits par cette étape.
+        group: sous-dossier des sorties (étapes parallèles).
 
     Returns:
-        La commande ``python -m novaria.pipeline.<module>``.
+        La liste d'arguments du conteneur.
     """
-    return ["python", "-m", f"novaria.pipeline.{module}"]
+    args = ["--bucket", bucket, "--inputs", *inputs, "--outputs", *outputs]
+    if group is not None:
+        args += ["--group", group]
+    return [*args, "--", step, *arguments]
 
 
 # --- Composants ---------------------------------------------------------------
 @dsl.container_component
-def ingestion(data_bucket: str, ingested: dsl.Output[dsl.Dataset]) -> dsl.ContainerSpec:
+def ingestion(data_bucket: str) -> dsl.ContainerSpec:
     """Étape 1 : lit les CSV bruts dans MinIO et écrit le Parquet et son manifeste.
+
+    Sortie MinIO ``ingested/`` (``measurements.parquet``, ``manifest.json``).
 
     Args:
         data_bucket: bucket MinIO des données (CSV sous ``raw/``).
-        ingested: dossier de sortie (``measurements.parquet``, ``manifest.json``).
 
     Returns:
         La spécification du conteneur.
     """
     return dsl.ContainerSpec(
         image=PIPELINE_IMAGE,
-        command=script("ingestion"),
-        args=["--source-bucket", data_bucket, "--output", ingested.path],
+        command=REMOTE,
+        args=remote_args(
+            data_bucket,
+            "ingestion",
+            ["--source-bucket", data_bucket, "--output", "{ingested}"],
+            outputs=("ingested",),
+        ),
     )
 
 
 @dsl.container_component
-def preparation(
-    data_bucket: str,
-    ingested: dsl.Input[dsl.Dataset],
-    prepared: dsl.Output[dsl.Dataset],
-    quality: dsl.Output[dsl.Artifact],
-    checks_log: dsl.Output[dsl.Artifact],
-) -> dsl.ContainerSpec:
-    """Étape 2 : nettoyage, variables et découpage chronologique ; publication dans MinIO.
+def preparation(data_bucket: str) -> dsl.ContainerSpec:
+    """Étape 2 : nettoyage, variables et découpage chronologique ; publication des jeux.
+
+    Sorties MinIO ``prepared/`` (train, val, test, métadonnées) et ``checks/``
+    (rapport qualité, journal de vérification).
 
     Args:
-        data_bucket: bucket MinIO où publier les jeux préparés (``datasets/``).
-        ingested: sortie de l'ingestion.
-        prepared: jeux ``train``, ``val``, ``test`` et ``metadata.json``.
-        quality: rapport qualité JSON.
-        checks_log: journal de vérification des données (``.log``).
+        data_bucket: bucket MinIO des données.
 
     Returns:
         La spécification du conteneur.
     """
     return dsl.ContainerSpec(
         image=PIPELINE_IMAGE,
-        command=script("preparation"),
-        args=[
-            "--input", ingested.path,
-            "--output", prepared.path,
-            "--report", quality.path,
-            "--log", checks_log.path,
-            "--publish-bucket", data_bucket,
-        ],
+        command=REMOTE,
+        args=remote_args(
+            data_bucket,
+            "preparation",
+            [
+                "--input", "{ingested}",
+                "--output", "{prepared}",
+                "--report", "{checks}/data_quality.json",
+                "--log", "{checks}/data_checks.log",
+                "--publish-bucket", data_bucket,
+            ],
+            inputs=("ingested",),
+            outputs=("prepared", "checks"),
+        ),
     )  # fmt: skip
 
 
 @dsl.container_component
-def training(
-    algorithm: str,
-    prepared: dsl.Input[dsl.Dataset],
-    trained: dsl.Output[dsl.Model],
-    report: dsl.Output[dsl.Markdown],
-) -> dsl.ContainerSpec:
+def training(data_bucket: str, algorithm: str) -> dsl.ContainerSpec:
     """Étape 3 : entraîne la grille d'un algorithme et garde son meilleur réglage.
 
+    Sortie MinIO ``trained/<algorithm>/`` (modèle retenu, ``comparison.json``,
+    tableau Markdown).
+
     Args:
+        data_bucket: bucket MinIO des données.
         algorithm: algorithme de ``configs/training.yaml``.
-        prepared: sortie de la préparation.
-        trained: modèle retenu et ``comparison.json``.
-        report: tableau de comparaison des réglages (affiché par l'interface).
 
     Returns:
         La spécification du conteneur.
     """
     return dsl.ContainerSpec(
         image=PIPELINE_IMAGE,
-        command=script("training"),
-        args=[
-            "--input", prepared.path,
-            "--output", trained.path,
-            "--report", report.path,
-            "--algorithms", algorithm,
-        ],
+        command=REMOTE,
+        args=remote_args(
+            data_bucket,
+            "training",
+            [
+                "--input", "{prepared}",
+                "--output", "{trained}",
+                "--report", "{trained}/training_comparison.md",
+                "--algorithms", algorithm,
+            ],
+            inputs=("prepared",),
+            outputs=("trained",),
+            group=algorithm,
+        ),
     )  # fmt: skip
 
 
 @dsl.container_component
-def injection(
-    prepared: dsl.Input[dsl.Dataset], controlled: dsl.Output[dsl.Dataset]
-) -> dsl.ContainerSpec:
+def injection(data_bucket: str) -> dsl.ContainerSpec:
     """Étape 4a : fige les jeux de test contrôlés (anomalies injectées dans le test).
 
+    Sortie MinIO ``controlled/`` (5 jeux et leur manifeste).
+
     Args:
-        prepared: sortie de la préparation (jamais le train).
-        controlled: jeux contrôlés et leur manifeste.
+        data_bucket: bucket MinIO des données.
 
     Returns:
         La spécification du conteneur.
     """
     return dsl.ContainerSpec(
         image=PIPELINE_IMAGE,
-        command=script("injection"),
-        args=["--input", prepared.path, "--output", controlled.path],
+        command=REMOTE,
+        args=remote_args(
+            data_bucket,
+            "injection",
+            ["--input", "{prepared}", "--output", "{controlled}"],
+            inputs=("prepared",),
+            outputs=("controlled",),
+        ),
     )
 
 
 @dsl.container_component
-def evaluation(
-    prepared: dsl.Input[dsl.Dataset],
-    controlled: dsl.Input[dsl.Dataset],
-    isolation_forest: dsl.Input[dsl.Model],
-    local_outlier_factor: dsl.Input[dsl.Model],
-    one_class_svm: dsl.Input[dsl.Model],
-    evaluated: dsl.Output[dsl.Model],
-    report: dsl.Output[dsl.Markdown],
-) -> dsl.ContainerSpec:
+def evaluation(data_bucket: str) -> dsl.ContainerSpec:
     """Étape 4b : évalue les 3 modèles sur les mêmes tests contrôlés et choisit le meilleur.
 
+    Sortie MinIO ``evaluated/`` (modèles fusionnés, ``evaluation.json``,
+    ``selection.json``, rapport).
+
     Args:
-        prepared: sortie de la préparation (train pour la stabilité).
-        controlled: jeux de test contrôlés.
-        isolation_forest: sortie de l'entraînement Isolation Forest.
-        local_outlier_factor: sortie de l'entraînement LOF.
-        one_class_svm: sortie de l'entraînement One-Class SVM.
-        evaluated: modèles fusionnés, ``evaluation.json`` et ``selection.json``.
-        report: rapport d'évaluation (affiché par l'interface ; la figure de
-            stabilité est dans MLflow).
+        data_bucket: bucket MinIO des données.
 
     Returns:
         La spécification du conteneur.
     """
     return dsl.ContainerSpec(
         image=PIPELINE_IMAGE,
-        command=script("evaluation"),
-        args=[
-            "--controlled", controlled.path,
-            "--prepared", prepared.path,
-            "--models", isolation_forest.path, local_outlier_factor.path, one_class_svm.path,
-            "--output", evaluated.path,
-            "--report", report.path,
-        ],
+        command=REMOTE,
+        args=remote_args(
+            data_bucket,
+            "evaluation",
+            [
+                "--controlled", "{controlled}",
+                "--prepared", "{prepared}",
+                "--models", *(f"{{trained}}/{a}" for a in ALGORITHMS),
+                "--output", "{evaluated}",
+                "--report", "{evaluated}/evaluation.md",
+            ],
+            inputs=("prepared", "controlled", "trained"),
+            outputs=("evaluated",),
+        ),
     )  # fmt: skip
 
 
 @dsl.container_component
 def promotion(
-    prepared: dsl.Input[dsl.Dataset],
-    controlled: dsl.Input[dsl.Dataset],
-    evaluated: dsl.Input[dsl.Model],
-    decision: dsl.Output[dsl.Artifact],
+    data_bucket: str, decision: dsl.Output[dsl.Artifact]
 ) -> dsl.ContainerSpec:
     """Étape 5 : enregistre le modèle choisi et le compare à ``@champion``.
 
+    Seule sortie visible dans le graphe Kubeflow : l'artefact ``decision``.
+
     Args:
-        prepared: sortie de la préparation (épisodes réels de pollution).
-        controlled: jeux de test contrôlés (mêmes que l'évaluation).
-        evaluated: sortie de l'évaluation (modèle choisi).
-        decision: ``promotion.json`` (décision, raisons, alias).
+        data_bucket: bucket MinIO des données.
+        decision: ``promotion.json`` (décision, raisons, métriques, alias).
 
     Returns:
         La spécification du conteneur.
     """
     return dsl.ContainerSpec(
         image=PIPELINE_IMAGE,
-        command=script("promotion"),
-        args=[
-            "--models", evaluated.path,
-            "--controlled", controlled.path,
-            "--prepared", prepared.path,
-            "--output", decision.path,
-        ],
+        command=REMOTE,
+        args=remote_args(
+            data_bucket,
+            "promotion",
+            [
+                "--models", "{evaluated}",
+                "--controlled", "{controlled}",
+                "--prepared", "{prepared}",
+                "--output", decision.path,
+            ],
+            inputs=("prepared", "controlled", "evaluated"),
+        ),
     )  # fmt: skip
 
 
 # --- Réglages Kubernetes des étapes --------------------------------------------
 def configure(
-    task: dsl.PipelineTask, name: str, memory: str, cpu: str, minio: bool = False
+    task: dsl.PipelineTask, name: str, memory: str, cpu: str
 ) -> dsl.PipelineTask:
     """Applique les réglages communs à une étape du pipeline.
 
-    - adresses de MLflow et MinIO (ConfigMap) ; identifiants MinIO (Secret)
-      seulement si l'étape lit ou écrit le bucket des données ;
-    - identifiant du run Kubeflow (``KFP_RUN_ID``), mis en tag des runs MLflow ;
+    - adresses de MLflow et MinIO (ConfigMap) et identifiants MinIO (Secret) :
+      chaque étape lit ou écrit ses dossiers dans ``novaria-data`` ;
+    - identifiant du run Kubeflow (``KFP_RUN_ID``) : préfixe MinIO des dossiers
+      du run et tag des runs MLflow ;
     - image locale (``IfNotPresent``, pas de registre) ;
     - limites de mémoire et de CPU ;
     - pas de cache : les CSV de MinIO et le Registry changent sans que les
@@ -237,7 +267,6 @@ def configure(
         name: nom affiché dans l'interface.
         memory: limite de mémoire (ex. ``3G``).
         cpu: limite de CPU (ex. ``2``).
-        minio: True si l'étape a besoin des identifiants MinIO.
 
     Returns:
         L'étape configurée.
@@ -254,15 +283,14 @@ def configure(
             "MINIO_ENDPOINT": "MINIO_ENDPOINT",
         },
     )
-    if minio:
-        kubernetes.use_secret_as_env(
-            task,
-            secret_name=MINIO_SECRET,
-            secret_key_to_env={
-                "MINIO_ACCESS_KEY": "MINIO_ACCESS_KEY",
-                "MINIO_SECRET_KEY": "MINIO_SECRET_KEY",
-            },
-        )
+    kubernetes.use_secret_as_env(
+        task,
+        secret_name=MINIO_SECRET,
+        secret_key_to_env={
+            "MINIO_ACCESS_KEY": "MINIO_ACCESS_KEY",
+            "MINIO_SECRET_KEY": "MINIO_SECRET_KEY",
+        },
+    )
     kubernetes.use_field_path_as_env(
         task, env_name="KFP_RUN_ID", field_path="metadata.labels['pipeline/runid']"
     )
@@ -281,51 +309,30 @@ def training_pipeline(data_bucket: str = DATA_BUCKET) -> None:
     """Enchaîne ingestion, préparation, 3 entraînements, injection, évaluation et promotion.
 
     Args:
-        data_bucket: bucket MinIO des données (CSV bruts et jeux publiés).
+        data_bucket: bucket MinIO des données (CSV bruts, jeux publiés, dossiers
+            des runs).
     """
-    ingested = configure(
-        ingestion(data_bucket=data_bucket), "1. ingestion", "2G", "1", minio=True
-    )
+    ingested = configure(ingestion(data_bucket=data_bucket), "1. ingestion", "2G", "1")
     prepared = configure(
-        preparation(data_bucket=data_bucket, ingested=ingested.outputs["ingested"]),
-        "2. preparation",
-        "3G",
-        "1",
-        minio=True,
-    )
-    datasets = prepared.outputs["prepared"]
-
-    trained = {
-        algorithm: configure(
-            training(algorithm=algorithm, prepared=datasets),
+        preparation(data_bucket=data_bucket), "2. preparation", "3G", "1"
+    ).after(ingested)
+    trained = [
+        configure(
+            training(data_bucket=data_bucket, algorithm=algorithm),
             f"3. training · {label}",
             "3G",
             "2",
-        )
+        ).after(prepared)
         for algorithm, label in ALGORITHMS.items()
-    }
+    ]
     controlled = configure(
-        injection(prepared=datasets), "4a. injection (tests contrôlés)", "2G", "1"
-    )
+        injection(data_bucket=data_bucket), "4a. injection (tests contrôlés)", "2G", "1"
+    ).after(prepared)
     evaluated = configure(
-        evaluation(
-            prepared=datasets,
-            controlled=controlled.outputs["controlled"],
-            **{a: t.outputs["trained"] for a, t in trained.items()},
-        ),
-        "4b. evaluation",
-        "4G",
-        "2",
-    )
-    configure(
-        promotion(
-            prepared=datasets,
-            controlled=controlled.outputs["controlled"],
-            evaluated=evaluated.outputs["evaluated"],
-        ),
-        "5. promotion",
-        "3G",
-        "1",
+        evaluation(data_bucket=data_bucket), "4b. evaluation", "4G", "2"
+    ).after(*trained, controlled)
+    configure(promotion(data_bucket=data_bucket), "5. promotion", "3G", "1").after(
+        evaluated
     )
 
 

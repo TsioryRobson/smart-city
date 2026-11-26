@@ -169,7 +169,8 @@ end note
 @startuml training_pipeline
 ' Pipeline Kubeflow d'entraînement (kubeflow/pipelines/training_pipeline.py).
 ' Chaque étape est un pod qui lance un script de novaria.pipeline dans l'image
-' novaria/pipeline ; les dossiers échangés sont des artefacts Kubeflow.
+' novaria/pipeline (lanceur novaria.pipeline.remote) ; les dossiers échangés
+' passent par MinIO (datasets/runs/<run>/). Seul artefact Kubeflow : decision.
 title Novaria · Pipeline Kubeflow d'entraînement (sprint 2)
 
 skinparam shadowing false
@@ -207,6 +208,8 @@ if (règle de promotion respectée ?) then (oui)
 else (non)
   :version enregistrée, décision ""refuse"";
 endif
+:artefact Kubeflow ""decision""
+(promotion.json);
 stop
 
 note right

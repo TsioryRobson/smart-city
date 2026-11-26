@@ -3,7 +3,12 @@
 import pytest
 from minio import Minio
 
-from novaria.common.storage import client_from_env, download_prefix, upload_directory
+from novaria.common.storage import (
+    client_from_env,
+    download_prefix,
+    download_tree,
+    upload_directory,
+)
 from tests.factories import FakeMinio
 
 
@@ -73,3 +78,26 @@ def test_client_from_env_requires_credentials(monkeypatch) -> None:
     monkeypatch.setenv("MINIO_ACCESS_KEY", "user")
     monkeypatch.setenv("MINIO_SECRET_KEY", "secret")
     assert isinstance(client_from_env(), Minio)
+
+
+def test_download_tree_keeps_subfolders(tmp_path) -> None:
+    """Vérifie le téléchargement récursif d'un préfixe, arborescence comprise.
+
+    Args:
+        tmp_path: dossier temporaire fourni par pytest.
+    """
+    client = FakeMinio()
+    client.objects = {
+        ("data", "runs/r1/trained/lof/comparison.json"): b"{}",
+        ("data", "runs/r1/trained/lof/model/MLmodel"): b"m",
+        ("data", "runs/r1/trainedX/other.json"): b"x",
+    }
+
+    paths = download_tree(client, "data", "runs/r1/trained", tmp_path)
+
+    assert [p.relative_to(tmp_path).as_posix() for p in paths] == [
+        "lof/comparison.json",
+        "lof/model/MLmodel",
+    ]
+    with pytest.raises(FileNotFoundError):
+        download_tree(client, "data", "runs/r2/trained", tmp_path)

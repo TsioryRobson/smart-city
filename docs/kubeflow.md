@@ -55,24 +55,33 @@ MLflow `kfp-validation`.
 
 ## Pipeline d'entraînement
 
-Branche `feature/s2-kubeflow-pipeline`. Les scripts de `novaria.pipeline` deviennent des étapes, sans réécrire
-leur logique : chaque étape lance le script avec ses arguments dans l'image `novaria/pipeline`.
+Branches `feature/s2-kubeflow-pipeline` puis `fix/minimize_view`. Les scripts de `novaria.pipeline` deviennent
+des étapes, sans réécrire leur logique : chaque étape lance le script dans l'image `novaria/pipeline`, par le
+lanceur `novaria.pipeline.remote`.
+
+**Vue minimisée :** les dossiers échangés entre étapes passent par MinIO, sous
+`novaria-data/datasets/runs/<id du run Kubeflow>/<dossier>/`, et non par des artefacts Kubeflow. Le graphe ne
+montre donc que les étapes (en bleu) et un seul artefact, `decision` (`promotion.json`). Le lanceur télécharge
+les dossiers d'entrée, lance le script avec des chemins locaux, puis envoie ses dossiers de sortie ; l'ordre des
+étapes est donné par `.after()`.
 
 ```
 1. ingestion -> 2. preparation -+-> 3. training · Isolation Forest -+
-                                +-> 3. training · LOF               +-> 4b. evaluation -> 5. promotion
+                                +-> 3. training · LOF               +-> 4b. evaluation -> 5. promotion -> decision
                                 +-> 3. training · One-Class SVM     |
                                 +-> 4a. injection (tests contrôlés) +
 ```
 
-| Étape | Script et arguments | Entrées | Sorties (artefacts Kubeflow) |
+Dossiers dans MinIO, sous `datasets/runs/<run>/` :
+
+| Étape | Script et arguments | Lit | Écrit |
 |---|---|---|---|
-| 1. ingestion | `ingestion --source-bucket novaria-data` | CSV de `novaria-data/raw/` (MinIO) | `ingested` (Parquet + manifeste) |
-| 2. preparation | `preparation --publish-bucket novaria-data` | `ingested` | `prepared` (train/val/test), `quality` (JSON), `checks_log` (.log) ; copie dans `datasets/prepared/<empreinte>/` |
-| 3. training ×3 | `training --algorithms <algo>` | `prepared` | `trained` (modèle retenu + `comparison.json`), `report` (Markdown) |
-| 4a. injection | `injection` | `prepared` (test seulement) | `controlled` (5 jeux + manifeste) |
-| 4b. evaluation | `evaluation --models <3 dossiers> --output` | `prepared`, `controlled`, les 3 `trained` | `evaluated` (modèles fusionnés, `selection.json`), `report` (Markdown) |
-| 5. promotion | `promotion --output` | `prepared`, `controlled`, `evaluated` | `decision` (`promotion.json`) ; version et alias dans le Registry |
+| 1. ingestion | `ingestion --source-bucket novaria-data` | CSV de `raw/` | `ingested/` (Parquet + manifeste) |
+| 2. preparation | `preparation --publish-bucket novaria-data` | `ingested/` | `prepared/` (train/val/test), `checks/` (rapport qualité, journal) ; copie dans `datasets/prepared/<empreinte>/` |
+| 3. training ×3 | `training --algorithms <algo>` | `prepared/` | `trained/<algo>/` (modèle retenu, `comparison.json`, tableau Markdown) |
+| 4a. injection | `injection` | `prepared/` (test seulement) | `controlled/` (5 jeux + manifeste) |
+| 4b. evaluation | `evaluation --models <3 dossiers> --output` | `prepared/`, `controlled/`, `trained/` | `evaluated/` (modèles fusionnés, `selection.json`, rapport) |
+| 5. promotion | `promotion --output` | `prepared/`, `controlled/`, `evaluated/` | artefact Kubeflow `decision` (`promotion.json`) ; version et alias dans le Registry |
 
 ```bash
 ./kubeflow/components/build.sh                                   # image novaria/pipeline:0.1.0
@@ -92,10 +101,13 @@ leur logique : chaque étape lance le script avec ses arguments dans l'image `no
 | Une image pour toutes les étapes (`novaria/pipeline`) | Même code et mêmes versions de bibliothèques partout ; `PYTHONPATH=/app/src`, configurations dans `/app/configs`, utilisateur non-root 10001. Wheels montés le temps de l'installation (pas dans l'image). |
 | Commit embarqué (`NOVARIA_GIT_SHA`) | Pas de dépôt Git dans l'image : `build.sh` passe le commit (suffixe `-dirty` si modifications), repris dans le tag `git_sha` des runs. |
 | Tag MLflow `kfp_run_id` | Chaque run MLflow (entraînement, évaluation, promotion) pointe vers le run Kubeflow qui l'a produit (label `pipeline/runid` du pod, par l'API descendante de Kubernetes). |
-| Identifiants MinIO dans 2 étapes seulement | Ingestion et préparation. Les autres n'ont besoin que de l'URL de MLflow, qui sert lui-même les artefacts. |
+| Dossiers échangés par MinIO (`novaria.pipeline.remote`), pas par des artefacts Kubeflow | Graphe lisible pour la démonstration : seulement les étapes et la décision. Les dossiers restent consultables (console MinIO, préfixe du run), les rapports et modèles sont aussi dans MLflow. Les scripts ne changent pas : le lanceur remplace `{dossier}` par un chemin local. |
+| Sortie des entraînements parallèles dans `trained/<algo>/` (`--group`) | Les 3 étapes écrivent le même dossier logique sans s'écraser. Kubeflow 2.18 ne sait pas concaténer un paramètre dans un argument (`ConcatPlaceholder`) : l'algorithme est passé en argument séparé. |
+| Identifiants MinIO dans toutes les étapes | Chaque étape lit ou écrit ses dossiers dans MinIO. Le compte `novaria-pipeline` reste limité : lecture du bucket, écriture seulement sous `datasets/`. |
+| Dossiers d'un run gardés dans MinIO | Traçabilité (un run = un préfixe). Environ 250 Mo par run, à nettoyer à la main si besoin : `datasets/runs/<run>/`. |
 | Pas de cache Kubeflow | Les entrées réelles (CSV dans MinIO, `@champion` du Registry) changent sans que les paramètres du pipeline changent : un résultat en cache serait faux. |
 | Limites mémoire / CPU par étape | 3 Go et 2 CPU par entraînement, 4 Go pour l'évaluation : les étapes parallèles tiennent dans les 15 Go de la machine virtuelle de Docker. |
-| Rapports en `dsl.Markdown` | Affichés dans l'onglet « Visualization » de l'étape. Kubeflow 2.18 ne résout pas `ConcatPlaceholder` (chemin calculé dans un dossier d'artefact) : chaque fichier est un artefact à part. |
+| Rapports dans MLflow (et MinIO), plus dans Kubeflow | La première version les affichait comme artefacts `dsl.Markdown` ; retirés avec la vue minimisée. Ils restent dans les runs MLflow `training` et `evaluation` (onglet Artifacts). |
 
 ### Run de référence (2026-11-22)
 
@@ -118,13 +130,22 @@ Run `28a79e85-c321-4116-bae8-97037d269aac` : **SUCCEEDED** en 21 min 30 s, fenê
 - 28 runs MLflow portent `kfp_run_id` (23 entraînement, 4 évaluation, 1 promotion).
 - Un premier run (`63a71da4…`) a échoué à la préparation à cause de `ConcatPlaceholder` ; il reste visible dans l'interface.
 
+Run de la vue minimisée (2026-11-26) : `3bcb6f47-6cfe-4009-ada7-ed4a834ebd2f`, **SUCCEEDED** en 31 min (évaluation
+ralentie par les tests lancés en même temps sur la machine). Graphe : 8 étapes et le seul artefact `decision`.
+Dossiers du run dans MinIO : ≈ 250 Mo (`trained/` et `evaluated/` ≈ 110 Mo chacun, surtout le modèle LOF qui garde
+le train). Résultats identiques (v4 promue, 95,9 % des pics, 2,94 % de fausses alertes).
+
+Les versions 3 et 4, identiques à la v2, ont ensuite été **supprimées du Registry** : retour à l'état du sprint 1,
+`@champion` = v2, `@previous` = v1. Leurs runs MLflow restent consultables. Le prochain run créera une v5.
+
 ### Voir le pipeline
 
 1. `kubectl -n kubeflow port-forward svc/ml-pipeline-ui 8080:80`, puis http://localhost:8080.
 2. **Runs** (ou **Experiments → novaria**) → run `novaria-training` : graphe des 8 étapes.
-3. Cliquer une étape : **Logs** (sortie du script), **Input/Output** (artefacts), **Visualization** pour les
-   rapports Markdown (entraînement, évaluation).
-4. Côté MLflow (http://localhost:5000) : filtre `tags.kfp_run_id = "<id du run>"` ; Registry → `air-anomaly-detector`.
+3. Cliquer une étape : **Logs** (sortie du script, avec les dossiers MinIO lus et écrits). Cliquer `decision`
+   (après la promotion) : `promotion.json`, avec la décision, les raisons, les métriques et les alias.
+4. Dossiers du run : console MinIO (http://localhost:9001), bucket `novaria-data`, `datasets/runs/<id du run>/`.
+5. Côté MLflow (http://localhost:5000) : filtre `tags.kfp_run_id = "<id du run>"` ; Registry → `air-anomaly-detector`.
 
 ## Ressources mesurées
 

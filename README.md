@@ -232,8 +232,9 @@ ingestion -> preparation -> training ×3 (IF, LOF, One-Class SVM) + injection ->
 .venv-kfp/bin/python kubeflow/pipelines/run.py kubeflow/pipelines/training_pipeline.yaml
 ```
 
-Le graphe et les rapports s'affichent dans l'interface (expérience `novaria`) ; les runs et la nouvelle version
-du modèle sont dans MLflow (tag `kfp_run_id`). Détails : [docs/kubeflow.md](docs/kubeflow.md#pipeline-dentraînement).
+Le graphe (expérience `novaria`) ne montre que les étapes et la décision de promotion (`decision`) : les dossiers
+échangés passent par MinIO (`novaria-data/datasets/runs/<run>/`). Les runs, rapports et la nouvelle version du
+modèle sont dans MLflow (tag `kfp_run_id`). Détails : [docs/kubeflow.md](docs/kubeflow.md#pipeline-dentraînement).
 
 ## Model Registry et promotion
 
