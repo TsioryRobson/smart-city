@@ -180,22 +180,25 @@ class FakeMinio:
         """Crée un stockage vide."""
         self.objects: dict[tuple[str, str], bytes] = {}
 
-    def list_objects(self, bucket: str, prefix: str = "") -> list[_Object]:
-        """Liste les objets directement sous un préfixe, comme MinIO (non récursif).
+    def list_objects(
+        self, bucket: str, prefix: str = "", recursive: bool = False
+    ) -> list[_Object]:
+        """Liste les objets d'un préfixe, comme MinIO.
 
         Args:
             bucket: bucket listé.
             prefix: préfixe des objets.
+            recursive: True pour lister aussi le contenu des sous-dossiers.
 
         Returns:
-            Les objets du préfixe, puis ses sous-dossiers.
+            Les objets du préfixe, puis ses sous-dossiers (non récursif).
         """
         files, dirs = [], set()
         for b, name in sorted(self.objects):
             if b != bucket or not name.startswith(prefix):
                 continue
             rest = name[len(prefix) :]
-            if "/" in rest:
+            if "/" in rest and not recursive:
                 dirs.add(prefix + rest.split("/")[0] + "/")
             else:
                 files.append(self._Object(name))

@@ -94,3 +94,37 @@ def upload_directory(
         client.fput_object(bucket, name, str(path))
         names.append(name)
     return names
+
+
+def download_tree(
+    client: Minio, bucket: str, prefix: str, destination: str | Path
+) -> list[Path]:
+    """Télécharge tous les objets d'un préfixe, sous-dossiers compris.
+
+    L'arborescence sous le préfixe est reproduite dans ``destination``.
+
+    Args:
+        client: client MinIO.
+        bucket: bucket source.
+        prefix: préfixe des objets (ex. ``datasets/runs/<run>/prepared``).
+        destination: dossier local (créé si besoin).
+
+    Returns:
+        Les fichiers téléchargés, triés.
+
+    Raises:
+        FileNotFoundError: si le préfixe ne contient aucun objet.
+    """
+    root = prefix.rstrip("/") + "/"
+    destination = Path(destination)
+    paths = []
+    for obj in client.list_objects(bucket, prefix=root, recursive=True):
+        if obj.is_dir:
+            continue
+        path = destination / obj.object_name[len(root) :]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        client.fget_object(bucket, obj.object_name, str(path))
+        paths.append(path)
+    if not paths:
+        raise FileNotFoundError(f"Aucun objet sous {bucket}/{root}")
+    return sorted(paths)
