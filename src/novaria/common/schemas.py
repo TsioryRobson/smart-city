@@ -52,3 +52,44 @@ class RawMeasurement(Measurement):
     """Événement de rejeu avec étiquette de scénario destinée à la démo."""
 
     injection: Injection | None = None
+
+
+ProviderMode = Literal["mlflow", "local", "mock"]
+AlertType = Literal["pollution_atypique", "defaut_capteur", "seuil_sanitaire"]
+
+
+class DataQualityIssue(BaseModel):
+    """Mesure manquante ou invalidée par la préparation partagée."""
+
+    field: str
+    reason: Literal["missing", "invalid"]
+
+
+class Prediction(BaseModel):
+    """Résultat du détecteur et états indépendants des règles métier."""
+
+    event_id: str
+    sensor_id: str
+    station_id: str
+    timestamp: datetime
+    score: Measure
+    is_anomaly: bool
+    anomaly_type: AlertType | None
+    alert_type: AlertType | None
+    data_quality_issues: list[DataQualityIssue]
+    health_exceedances: list[str] | None
+    model_version: str
+    model_provider: ProviderMode
+    is_mock: bool
+
+
+class Health(BaseModel):
+    """Disponibilité du service et identité du modèle chargé."""
+
+    status: Literal["ok", "unavailable"]
+    model_loaded: bool
+    model_name: str
+    model_version: str | None
+    model_alias: str | None
+    model_provider: ProviderMode
+    is_mock: bool

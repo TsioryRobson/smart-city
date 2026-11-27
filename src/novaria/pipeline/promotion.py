@@ -110,7 +110,13 @@ def current_alias_version(client: MlflowClient, name: str, alias: str) -> Any | 
         return None
 
 
-def load_registered_model(name: str, version: Any) -> Pipeline:
+def load_registered_model(
+    name: str,
+    version: Any,
+    *,
+    tracking_uri: str | None = None,
+    registry_uri: str | None = None,
+) -> Pipeline:
     """Charge une version du Registry après avoir vérifié son empreinte.
 
     C'est le contrôle que fera l'API au chargement : le fichier sérialisé doit
@@ -119,6 +125,8 @@ def load_registered_model(name: str, version: Any) -> Pipeline:
     Args:
         name: nom du modèle enregistré.
         version: version du modèle (objet MLflow).
+        tracking_uri: URI de suivi facultative.
+        registry_uri: URI de registre facultative.
 
     Returns:
         Le pipeline scikit-learn.
@@ -127,7 +135,11 @@ def load_registered_model(name: str, version: Any) -> Pipeline:
         ValueError: si l'empreinte ne correspond pas.
     """
     uri = f"models:/{name}/{version.version}"
-    local = Path(mlflow.artifacts.download_artifacts(uri))
+    local = Path(
+        mlflow.artifacts.download_artifacts(
+            uri, tracking_uri=tracking_uri, registry_uri=registry_uri
+        )
+    )
     expected = version.tags.get("model_sha256")
     actual = sha256_file(serialized_model_path(local))
     if actual != expected:

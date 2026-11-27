@@ -1,0 +1,7 @@
+**
+!requirements.lock.txt
+!src/
+!src/novaria/
+!src/novaria/**
+**/__pycache__/
+**/*.pyc

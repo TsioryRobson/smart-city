@@ -1,0 +1,19 @@
+# Utilisable seul pour la démo ou avec docker-compose.yml pour le Registry.
+name: novaria
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: infra/api/Dockerfile
+    image: novaria/api:0.1.0
+    ports:
+      - "127.0.0.1:${NOVARIA_API_PORT:-8000}:8000"
+    environment:
+      NOVARIA_MODEL_PROVIDER: ${NOVARIA_MODEL_PROVIDER:-mlflow}
+      NOVARIA_MODELS_DIR: /app/models
+      NOVARIA_MODEL_ALGORITHM: ${NOVARIA_MODEL_ALGORITHM:-}
+      NOVARIA_HOURLY_LIMITS: ${NOVARIA_HOURLY_LIMITS:-}
+      MLFLOW_TRACKING_URI: ${NOVARIA_API_MLFLOW_URI:-http://mlflow:5000}
+      MLFLOW_HTTP_REQUEST_TIMEOUT: ${MLFLOW_HTTP_REQUEST_TIMEOUT:-5}
+      MLFLOW_HTTP_REQUEST_MAX_RETRIES: ${MLFLOW_HTTP_REQUEST_MAX_RETRIES:-0}
