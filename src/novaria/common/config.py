@@ -139,3 +139,5 @@ VAL_START: pd.Timestamp = pd.Timestamp("2015-09-01")
 TEST_START: pd.Timestamp = pd.Timestamp("2015-12-01")
 # Début de la période rejouée par le simulateur : jamais vue par le modèle.
 DEMO_START: pd.Timestamp = pd.Timestamp("2016-03-01")
+# Borne de fin exclusive des mesures historiques du dataset Beijing.
+DEMO_END: pd.Timestamp = pd.Timestamp("2017-03-01")

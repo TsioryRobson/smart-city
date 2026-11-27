@@ -236,6 +236,12 @@ Le graphe (expérience `novaria`) ne montre que les étapes et la décision de p
 échangés passent par MinIO (`novaria-data/datasets/runs/<run>/`). Les runs, rapports et la nouvelle version du
 modèle sont dans MLflow (tag `kfp_run_id`). Détails : [docs/kubeflow.md](docs/kubeflow.md#pipeline-dentraînement).
 
+## Démonstration IoT et FastAPI (sprint 3)
+
+Le [simulateur IoT](docs/simulator.md) rejoue les mesures Beijing réservées à la démo, en console ou via HTTP.
+Le [guide FastAPI](docs/inference.md) couvre le lancement de la chaîne, les modes MLflow, local et mock,
+les réponses de `/predict` et le démarrage avec Docker Compose.
+
 ## Model Registry et promotion
 
 **Promotion** (`promotion.py`) : enregistre le modèle retenu comme nouvelle version de `air-anomaly-detector`
